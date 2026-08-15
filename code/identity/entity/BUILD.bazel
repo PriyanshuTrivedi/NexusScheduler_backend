@@ -1,0 +1,17 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "entity",
+    srcs = [
+        "invitation.go",
+        "user.go",
+    ],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/identity/entity",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "entity_test",
+    srcs = ["user_test.go"],
+    embed = [":entity"],
+)

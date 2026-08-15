@@ -1,0 +1,11 @@
+# Generated protobuf / mocks
+gen/
+
+# Bazel generated files
+bazel-bin/
+bazel-out/
+bazel-testlogs/
+bazel-nexusSchedulerBackend/
+
+# Environment variables / secrets
+.env

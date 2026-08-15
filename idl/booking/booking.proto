@@ -1,0 +1,79 @@
+syntax = "proto3";
+package booking;
+
+option go_package = "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/booking";
+
+enum BookingStatus {
+  BOOKING_STATUS_UNSPECIFIED = 0;
+  BOOKING_STATUS_CONFIRMED   = 1;
+  BOOKING_STATUS_WAITLISTED  = 2;
+  BOOKING_STATUS_CANCELLED   = 3;
+  BOOKING_STATUS_RESCHEDULED = 4;
+  BOOKING_STATUS_FAILED      = 5;
+}
+
+message CreateBookingRequest {
+  string user_id     = 1;
+  string resource_id = 2;
+  int64  start_unix  = 3;
+  int64  end_unix    = 4;
+  string title       = 5;
+  string subtitle    = 6;
+  string user_email  = 7;
+}
+
+message CreateBookingResponse {
+  string        reference_code = 1;
+  BookingStatus status         = 2;
+}
+
+message CancelBookingRequest{
+  string reference_code = 1;
+}
+
+message CancelBookingResponse{
+  BookingStatus status = 1;
+}
+
+message RescheduleBookingRequest {
+  string reference_code = 1;
+  int64  start_unix     = 2;
+  int64  end_unix       = 3;
+}
+
+message RescheduleBookingResponse {
+  string        reference_code = 1;
+  BookingStatus status         = 2;
+}
+
+message GetBookingStatusRequest {
+  string reference_code = 1;
+}
+
+message GetBookingStatusResponse {
+  string        reference_code = 1;
+  string        user_id        = 2;
+  string        resource_id    = 3;
+  int64         start_unix     = 4;
+  int64         end_unix       = 5;
+  string        title          = 6;
+  string        subtitle       = 7;
+  BookingStatus status         = 8;
+}
+
+message ListUserBookingsRequest {
+  string user_id = 1;
+}
+
+message ListUserBookingsResponse {
+  repeated GetBookingStatusResponse bookings = 1;
+}
+
+service BookingService{
+  rpc CreateBooking(CreateBookingRequest) returns (CreateBookingResponse);
+  rpc CancelBooking(CancelBookingRequest) returns (CancelBookingResponse);
+  rpc RescheduleBooking(RescheduleBookingRequest) returns(RescheduleBookingResponse);
+  rpc GetBookingStatus(GetBookingStatusRequest) returns(GetBookingStatusResponse);
+  rpc ListUpcomingBookings(ListUserBookingsRequest) returns(ListUserBookingsResponse);
+  rpc ListPastBookings(ListUserBookingsRequest) returns(ListUserBookingsResponse);
+}

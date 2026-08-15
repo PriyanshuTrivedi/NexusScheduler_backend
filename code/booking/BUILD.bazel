@@ -1,0 +1,19 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "booking_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/booking",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//code/booking/config",
+        "@org_uber_go_fx//:fx",
+    ],
+)
+
+go_binary(
+    name = "booking",
+    data = ["//code/booking/config"],
+    embed = [":booking_lib"],
+    visibility = ["//visibility:public"],
+)

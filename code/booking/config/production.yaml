@@ -1,0 +1,20 @@
+env: production
+grpc_port: 9002
+log_level: warn
+
+postgres:
+  max_conns: 25
+  min_conns: 5
+  conn_max_lifetime_minutes: 60
+
+redis:
+  pool_size: 25
+  dial_timeout_ms: 300
+
+lock_ttl_ms: 5000
+
+mail:
+  host: ""
+  port: 587
+  username: ""
+  from: ""

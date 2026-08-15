@@ -1,0 +1,32 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "middleware",
+    srcs = [
+        "auth.go",
+        "rate_limit.go",
+    ],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/api-gateway/middleware",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//gen/idl/identity",
+        "@com_github_golang_jwt_jwt_v5//:jwt",
+        "@com_github_redis_go_redis_v9//:go-redis",
+    ],
+)
+
+go_test(
+    name = "middleware_test",
+    srcs = [
+        "auth_test.go",
+        "rate_limit_test.go",
+    ],
+    embed = [":middleware"],
+    deps = [
+        "//gen/idl/identity",
+        "//gen/mocks/api_gateway/middleware",
+        "@com_github_golang_jwt_jwt_v5//:jwt",
+        "@com_github_golang_mock//gomock",
+        "@com_github_stretchr_testify//assert",
+    ],
+)

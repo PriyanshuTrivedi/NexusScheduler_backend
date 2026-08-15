@@ -1,0 +1,26 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "controller",
+    srcs = ["resource.go"],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/resource/controller",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//code/resource/client",
+        "//code/resource/entity",
+        "//code/resource/store",
+    ],
+)
+
+go_test(
+    name = "controller_test",
+    srcs = ["resource_test.go"],
+    embed = [":controller"],
+    deps = [
+        "//code/resource/entity",
+        "//gen/mocks/resource/client",
+        "//gen/mocks/resource/store",
+        "@com_github_golang_mock//gomock",
+        "@com_github_stretchr_testify//assert",
+    ],
+)

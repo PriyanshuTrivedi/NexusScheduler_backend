@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "controller",
+    srcs = ["user.go"],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/identity/controller",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//code/identity/entity",
+        "//code/identity/store",
+        "//code/identity/util",
+    ],
+)
+
+go_test(
+    name = "controller_test",
+    srcs = ["user_test.go"],
+    embed = [":controller"],
+    deps = [
+        "//code/identity/entity",
+        "@com_github_stretchr_testify//assert",
+    ],
+)

@@ -1,0 +1,29 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "controller",
+    srcs = ["booking.go"],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/controller",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//code/booking/client",
+        "//code/booking/entity",
+        "//code/booking/mailer",
+        "//code/booking/store",
+    ],
+)
+
+go_test(
+    name = "controller_test",
+    srcs = ["booking_test.go"],
+    embed = [":controller"],
+    deps = [
+        "//code/booking/entity",
+        "//code/booking/mailer",
+        "//code/booking/store",
+        "//gen/mocks/booking/client",
+        "//gen/mocks/booking/store",
+        "@com_github_golang_mock//gomock",
+        "@com_github_stretchr_testify//assert",
+    ],
+)

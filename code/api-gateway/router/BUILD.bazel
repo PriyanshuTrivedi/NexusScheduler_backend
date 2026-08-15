@@ -1,0 +1,13 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "router",
+    srcs = ["router.go"],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/api-gateway/router",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//code/api-gateway/handler",
+        "//code/api-gateway/middleware",
+        "//gen/idl/identity",
+    ],
+)

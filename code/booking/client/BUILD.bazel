@@ -1,0 +1,9 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "client",
+    srcs = ["booking.go"],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/client",
+    visibility = ["//visibility:public"],
+    deps = ["@com_github_redis_go_redis_v9//:go-redis"],
+)

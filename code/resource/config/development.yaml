@@ -1,0 +1,17 @@
+# Non-secret tuning only. Postgres DSN and Redis address come from the
+# environment (RESOURCE_POSTGRES_DSN, RESOURCE_REDIS_ADDR) — never here.
+env: development
+grpc_port: 9003
+log_level: debug
+
+postgres:
+  max_conns: 5
+  min_conns: 1
+  conn_max_lifetime_minutes: 30
+
+redis:
+  pool_size: 5
+  dial_timeout_ms: 500
+
+search_cache_ttl_seconds: 30
+expansion_weeks: 4

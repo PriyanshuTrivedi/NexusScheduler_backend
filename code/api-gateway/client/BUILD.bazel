@@ -1,0 +1,18 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "client",
+    srcs = [
+        "booking.go",
+        "identity.go",
+        "resource.go",
+    ],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/api-gateway/client",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//gen/idl/booking",
+        "//gen/idl/identity",
+        "//gen/idl/resource",
+        "@org_golang_google_grpc//:grpc",
+    ],
+)

@@ -1,0 +1,15 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "grpcserver",
+    srcs = ["grpcserver.go"],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/pkg/grpcserver",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//health",
+        "@org_golang_google_grpc//health/grpc_health_v1",
+        "@org_golang_google_grpc//reflection",
+        "@org_uber_go_fx//:fx",
+    ],
+)

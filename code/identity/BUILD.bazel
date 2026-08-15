@@ -1,0 +1,19 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "identity_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/identity",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//code/identity/config",
+        "@org_uber_go_fx//:fx",
+    ],
+)
+
+go_binary(
+    name = "identity",
+    data = ["//code/identity/config"],
+    embed = [":identity_lib"],
+    visibility = ["//visibility:public"],
+)

@@ -1,0 +1,19 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "resource_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/resource",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//code/resource/config",
+        "@org_uber_go_fx//:fx",
+    ],
+)
+
+go_binary(
+    name = "resource",
+    data = ["//code/resource/config"],
+    embed = [":resource_lib"],
+    visibility = ["//visibility:public"],
+)

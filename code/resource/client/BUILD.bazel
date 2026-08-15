@@ -1,0 +1,16 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "client",
+    srcs = ["resource.go"],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/resource/client",
+    visibility = ["//visibility:public"],
+    deps = ["@com_github_redis_go_redis_v9//:go-redis"],
+)
+
+go_test(
+    name = "client_test",
+    srcs = ["resource_test.go"],
+    embed = [":client"],
+    deps = ["@com_github_stretchr_testify//assert"],
+)

@@ -1,0 +1,13 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "store",
+    srcs = ["booking.go"],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/store",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//code/booking/entity",
+        "@com_github_jackc_pgx_v5//:pgx",
+        "@com_github_jackc_pgx_v5//pgxpool",
+    ],
+)

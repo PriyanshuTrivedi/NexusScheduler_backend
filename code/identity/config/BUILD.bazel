@@ -1,0 +1,20 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "config",
+    srcs = ["module.go"],
+    data = glob(["*.yaml"]),
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/identity/config",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//code/identity/controller",
+        "//code/identity/handler",
+        "//code/identity/store",
+        "//gen/idl/identity",
+        "//pkg/configloader",
+        "//pkg/grpcserver",
+        "@com_github_jackc_pgx_v5//pgxpool",
+        "@org_golang_google_grpc//:grpc",
+        "@org_uber_go_fx//:fx",
+    ],
+)

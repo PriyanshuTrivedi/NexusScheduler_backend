@@ -1,0 +1,23 @@
+# Non-secret tuning only. Postgres DSN, Redis address, and Kafka brokers
+# come from the environment (BOOKING_POSTGRES_DSN, BOOKING_REDIS_ADDR,
+# BOOKING_KAFKA_BROKERS) — never here.
+env: development
+grpc_port: 9002
+log_level: debug
+
+postgres:
+  max_conns: 5
+  min_conns: 1
+  conn_max_lifetime_minutes: 30
+
+redis:
+  pool_size: 5
+  dial_timeout_ms: 500
+
+lock_ttl_ms: 5000
+
+mail:
+  host: ""
+  port: 587
+  username: ""
+  from: ""

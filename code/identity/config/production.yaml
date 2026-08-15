@@ -1,0 +1,2 @@
+env: production
+grpc_port: 9004

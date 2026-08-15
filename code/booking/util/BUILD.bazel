@@ -1,0 +1,23 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "util",
+    srcs = ["booking.go"],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/util",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//code/booking/entity",
+        "//gen/idl/booking",
+    ],
+)
+
+go_test(
+    name = "util_test",
+    srcs = ["booking_test.go"],
+    embed = [":util"],
+    deps = [
+        "//code/booking/entity",
+        "//gen/idl/booking",
+        "@com_github_stretchr_testify//assert",
+    ],
+)

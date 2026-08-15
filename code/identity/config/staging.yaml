@@ -1,0 +1,2 @@
+env: staging
+grpc_port: 9004

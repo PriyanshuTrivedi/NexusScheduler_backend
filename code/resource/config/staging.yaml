@@ -1,0 +1,15 @@
+env: staging
+grpc_port: 9003
+log_level: info
+
+postgres:
+  max_conns: 10
+  min_conns: 2
+  conn_max_lifetime_minutes: 30
+
+redis:
+  pool_size: 10
+  dial_timeout_ms: 500
+
+search_cache_ttl_seconds: 30
+expansion_weeks: 4

@@ -1,0 +1,13 @@
+env: development
+cors:
+  allowed_origin: http://localhost:3000
+http_port: 8080
+identity_grpc_addr: localhost:9004
+resource_grpc_addr: localhost:9003
+booking_grpc_addr: localhost:9002
+redis_addr: localhost:6379
+jwt:
+  issuer: nexus-scheduler-gateway
+  ttl_hours: 24
+rate_limit: 60
+rate_window_seconds: 60

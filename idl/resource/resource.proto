@@ -1,0 +1,138 @@
+syntax = "proto3";
+package resource;
+
+option go_package = "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/resource";
+
+enum TenantType {
+  TENANT_TYPE_UNSPECIFIED = 0;
+  TENANT_TYPE_INDIVIDUAL  = 1;
+  TENANT_TYPE_ORG         = 2;
+}
+
+enum MeetingMode {
+  MEETING_MODE_UNSPECIFIED = 0;
+  MEETING_MODE_ONLINE      = 1;
+  MEETING_MODE_OFFLINE     = 2;
+  MEETING_MODE_HYBRID      = 3;
+}
+
+enum DayOfWeek {
+  DAY_OF_WEEK_UNSPECIFIED = 0;
+  DAY_OF_WEEK_MONDAY      = 1;
+  DAY_OF_WEEK_TUESDAY     = 2;
+  DAY_OF_WEEK_WEDNESDAY   = 3;
+  DAY_OF_WEEK_THURSDAY    = 4;
+  DAY_OF_WEEK_FRIDAY      = 5;
+  DAY_OF_WEEK_SATURDAY    = 6;
+  DAY_OF_WEEK_SUNDAY      = 7;
+}
+
+enum SlotStatus {
+  SLOT_STATUS_UNSPECIFIED = 0;
+  SLOT_STATUS_OPEN        = 1;
+  SLOT_STATUS_HELD        = 2;
+  SLOT_STATUS_BOOKED      = 3;
+  SLOT_STATUS_BLOCKED     = 4;
+}
+
+message ResourceType {
+  string resource_type_id = 1;
+  string name             = 2;
+  bool   is_active        = 3;
+}
+
+message CreateResourceTypeRequest { string name = 1; }
+message CreateResourceTypeResponse { ResourceType resource_type = 1; }
+message DeleteResourceTypeRequest { string resource_type_id = 1; }
+message DeleteResourceTypeResponse {}
+message SetResourceTypeStatusRequest { string resource_type_id = 1; bool is_active = 2; }
+message SetResourceTypeStatusResponse { ResourceType resource_type = 1; }
+
+message CreateResourceRequest {
+  TenantType              tenant_type       = 1;
+  string                  org_id            = 2;
+  string                  resource_type_id  = 3;
+  string                  name              = 4;
+  MeetingMode             meeting_mode      = 5;
+  optional double         lat               = 6;
+  optional double         lng               = 7;
+  map<string, string>     attributes        = 8;
+  repeated RecurrenceRule recurrence        = 9;
+  string                  user_id           = 10;
+}
+
+message CreateResourceResponse { string resource_id = 1; }
+message SetResourceStatusRequest { string resource_id = 1; bool is_active = 2; }
+message SetResourceStatusResponse { bool is_active = 1; }
+message DeleteResourceRequest { string resource_id = 1; }
+message DeleteResourceResponse {}
+
+message TimeSlot {
+  int32 start_hour = 1;
+  int32 start_minute = 2;
+  int32 end_hour = 3;
+  int32 end_minute = 4;
+}
+message RecurrenceRule {
+  DayOfWeek day = 1;
+  repeated TimeSlot slots = 2;
+  string timezone = 3;
+}
+message SetRecurringAvailabilityRequest { string resource_id = 1; repeated RecurrenceRule recurrence = 2; }
+message SetRecurringAvailabilityResponse { int32 slots_generated = 1; }
+message AddSlotExceptionRequest { string resource_id = 1; int64 start_unix = 2; int64 end_unix = 3; string reason = 4; }
+message AddSlotExceptionResponse { string slot_id = 1; SlotStatus status = 2; }
+message RemoveSlotExceptionRequest { string slot_id = 1; string reason = 2; }
+message RemoveSlotExceptionResponse { SlotStatus status = 1; }
+message SetLeavePeriodRequest { string resource_id = 1; int64 start_day_unix = 2; int64 end_day_unix = 3; string reason = 4; }
+message SetLeavePeriodResponse { int32 slots_removed = 1; }
+
+message SearchResourcesRequest {
+  TenantType          tenant_type       = 1;
+  string              org_id            = 2;
+  string              name              = 3;
+  string              resource_type_id  = 4;
+  MeetingMode         meeting_mode      = 5;
+  map<string, string> attributes        = 6;
+  double              lat               = 7;
+  double              lng               = 8;
+  double              radius_km         = 9;
+  int64               window_start_unix = 10;
+  int64               window_end_unix   = 11;
+}
+
+message SearchResourcesResponse { repeated ResourceSummary resources = 1; }
+message ResourceSummary {
+  string resource_id = 1;
+  string name = 2;
+  ResourceType resource_type = 3;
+  MeetingMode meeting_mode = 4;
+  double distance_km = 5;
+  map<string, string> attributes = 6;
+  repeated Slot next_available_slots = 7;
+  bool is_active = 8;
+  TenantType tenant_type = 9;
+  optional string org_id = 10;
+}
+message Slot { int64 start_unix = 1; int64 end_unix = 2; }
+message GetSlotRequest { string slot_id = 1; }
+message GetSlotResponse { string slot_id = 1; string resource_id = 2; int64 start_unix = 3; int64 end_unix = 4; SlotStatus status = 5; }
+
+message ListResourceTypesRequest {}
+message ListResourceTypesResponse { repeated ResourceType resource_types = 1; }
+
+service ResourceService {
+  rpc ListResourceTypes(ListResourceTypesRequest) returns (ListResourceTypesResponse);
+  rpc CreateResourceType(CreateResourceTypeRequest) returns (CreateResourceTypeResponse);
+  rpc DeleteResourceType(DeleteResourceTypeRequest) returns (DeleteResourceTypeResponse);
+  rpc SetResourceTypeStatus(SetResourceTypeStatusRequest) returns (SetResourceTypeStatusResponse);
+  rpc CreateResource(CreateResourceRequest) returns (CreateResourceResponse);
+  rpc SetResourceStatus(SetResourceStatusRequest) returns (SetResourceStatusResponse);
+  rpc DeleteResource(DeleteResourceRequest) returns (DeleteResourceResponse);
+  rpc SetRecurringAvailability(SetRecurringAvailabilityRequest) returns (SetRecurringAvailabilityResponse);
+  rpc AddSlotException(AddSlotExceptionRequest) returns (AddSlotExceptionResponse);
+  rpc RemoveSlotException(RemoveSlotExceptionRequest) returns (RemoveSlotExceptionResponse);
+  rpc SetLeavePeriod(SetLeavePeriodRequest) returns (SetLeavePeriodResponse);
+  rpc SearchResources(SearchResourcesRequest) returns (SearchResourcesResponse);
+  rpc GetSlot(GetSlotRequest) returns (GetSlotResponse);
+}

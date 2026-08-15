@@ -1,0 +1,236 @@
+syntax = "proto3";
+package identity;
+
+option go_package = "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/identity";
+
+enum UserRole {
+  USER_ROLE_UNSPECIFIED = 0;
+  USER_ROLE_ADMIN        = 1;
+  USER_ROLE_CLIENT       = 2;
+  USER_ROLE_ORG_HEAD     = 3;
+  USER_ROLE_RESOURCE     = 4;
+}
+
+enum TenantType {
+  TENANT_TYPE_UNSPECIFIED = 0;
+  TENANT_TYPE_INDIVIDUAL  = 1;
+  TENANT_TYPE_ORG         = 2;
+}
+
+enum InvitationStatus {
+  INVITATION_STATUS_UNSPECIFIED        = 0;
+  INVITATION_STATUS_ADMIN_PENDING      = 1;
+  INVITATION_STATUS_PENDING_ACCEPTANCE = 2;
+  INVITATION_STATUS_ACCEPTED           = 3;
+  INVITATION_STATUS_EXPIRED            = 4;
+  INVITATION_STATUS_REVOKED            = 5;
+}
+
+message UserIdentifier {
+  oneof value {
+    string email = 1;
+    string phone = 2;
+  }
+}
+
+message User {
+  string user_id              = 1;
+  optional string org_id      = 2;
+  string name                 = 3;
+  UserIdentifier identifier   = 4;
+  UserRole role               = 5;
+  bool is_active              = 6;
+  int64 created_at_unix       = 7;
+  int64 updated_at_unix       = 8;
+  TenantType tenant_type      = 9;
+}
+
+message Organization {
+  string organization_id = 1;
+  string name            = 2;
+  bool is_active         = 3;
+  int64 created_at_unix  = 4;
+  int64 updated_at_unix  = 5;
+}
+
+message CreateOrganizationRequest {
+  string name = 1;
+}
+
+message CreateOrganizationResponse {
+  Organization organization = 1;
+}
+
+message UpdateOrganizationRequest {
+  string organization_id = 1;
+  string name            = 2;
+}
+
+message UpdateOrganizationResponse {
+  Organization organization = 1;
+}
+
+message GetOrganizationRequest {
+  string organization_id = 1;
+}
+
+message GetOrganizationResponse {
+  Organization organization = 1;
+}
+
+message SetOrganizationStatusRequest {
+  string organization_id = 1;
+  bool is_active          = 2;
+}
+
+message SetOrganizationStatusResponse {
+  Organization organization = 1;
+}
+
+// Permanent deletion is intended for test/cleanup data only.
+// The organization must be inactive and have no users.
+message DeleteOrganizationRequest {
+  string organization_id = 1;
+}
+
+message DeleteOrganizationResponse {}
+
+message RegisterClientRequest {
+  string name               = 1;
+  UserIdentifier identifier = 2;
+  string password           = 3;
+}
+
+message RegisterClientResponse {
+  User user = 1;
+}
+
+message RequestOrgHeadRequest {
+  string name              = 1;
+  UserIdentifier identifier = 2;
+  string organization_name = 3;
+}
+
+message RequestOrgHeadResponse {
+  string invitation_id = 1;
+  InvitationStatus status = 2;
+}
+
+message ApproveOrgHeadRequest {
+  string invitation_id = 1;
+}
+
+message ApproveOrgHeadResponse {
+  string invitation_id = 1;
+  InvitationStatus status = 2;
+  string org_id = 3;
+}
+
+message InviteResourceRequest {
+  string org_id             = 1;
+  string name               = 2;
+  UserIdentifier identifier = 3;
+}
+
+message InviteResourceResponse {
+  string invitation_id = 1;
+  InvitationStatus status = 2;
+}
+
+message AcceptInvitationRequest {
+  string invitation_id = 1;
+  string invite_token  = 2;
+  string password      = 3;
+}
+
+message AcceptInvitationResponse {
+  User user = 1;
+}
+
+message LoginRequest {
+  UserIdentifier identifier = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  User user = 1;
+}
+
+message UpdateProfileRequest {
+  string user_id = 1;
+  string name    = 2;
+}
+
+message UpdateProfileResponse {
+  User user = 1;
+}
+
+message SetUserStatusRequest {
+  string user_id = 1;
+  bool is_active = 2;
+}
+
+message SetUserStatusResponse {
+  User user = 1;
+}
+
+message RequestPasswordResetRequest {
+  UserIdentifier identifier = 1;
+}
+
+message RequestPasswordResetResponse {}
+
+message ResetPasswordRequest {
+  string email        = 1;
+  string otp          = 2;
+  string new_password = 3;
+}
+
+message ResetPasswordResponse {}
+
+message GetUserRequest {
+  string user_id = 1;
+}
+
+message GetUserResponse {
+  User user = 1;
+}
+
+message ListOrganizationsRequest {}
+
+message ListOrganizationsResponse {
+  repeated Organization organizations = 1;
+}
+
+message RegisterProviderRequest {
+  string name               = 1;
+  UserIdentifier identifier = 2;
+  string password           = 3;
+  TenantType tenant_type    = 4;
+  string org_id             = 5;
+}
+
+message RegisterProviderResponse {
+  User user = 1;
+}
+
+service IdentityService {
+  rpc CreateOrganization(CreateOrganizationRequest) returns (CreateOrganizationResponse);
+  rpc UpdateOrganization(UpdateOrganizationRequest) returns (UpdateOrganizationResponse);
+  rpc GetOrganization(GetOrganizationRequest) returns (GetOrganizationResponse);
+  rpc SetOrganizationStatus(SetOrganizationStatusRequest) returns (SetOrganizationStatusResponse);
+  rpc DeleteOrganization(DeleteOrganizationRequest) returns (DeleteOrganizationResponse);
+  rpc RegisterClient(RegisterClientRequest) returns (RegisterClientResponse);
+  rpc RequestOrgHead(RequestOrgHeadRequest) returns (RequestOrgHeadResponse);
+  rpc ApproveOrgHead(ApproveOrgHeadRequest) returns (ApproveOrgHeadResponse);
+  rpc InviteResource(InviteResourceRequest) returns (InviteResourceResponse);
+  rpc AcceptInvitation(AcceptInvitationRequest) returns (AcceptInvitationResponse);
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
+  rpc SetUserStatus(SetUserStatusRequest) returns (SetUserStatusResponse);
+  rpc RequestPasswordReset(RequestPasswordResetRequest) returns (RequestPasswordResetResponse);
+  rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse);
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  rpc ListOrganizations(ListOrganizationsRequest) returns (ListOrganizationsResponse);
+  rpc RegisterProvider(RegisterProviderRequest) returns (RegisterProviderResponse);
+}

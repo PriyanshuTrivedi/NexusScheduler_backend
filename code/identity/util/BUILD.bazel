@@ -1,0 +1,28 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "util",
+    srcs = [
+        "otp.go",
+        "password.go",
+        "token.go",
+        "user.go",
+    ],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/identity/util",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//code/identity/entity",
+        "//gen/idl/identity",
+        "@org_golang_x_crypto//bcrypt",
+    ],
+)
+
+go_test(
+    name = "util_test",
+    srcs = [
+        "otp_test.go",
+        "password_test.go",
+        "token_test.go",
+    ],
+    embed = [":util"],
+)

@@ -1,0 +1,24 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "config",
+    srcs = ["module.go"],
+    data = glob(["*.yaml"]),
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/api-gateway/config",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//code/api-gateway/client",
+        "//code/api-gateway/handler",
+        "//code/api-gateway/middleware",
+        "//code/api-gateway/router",
+        "//gen/idl/booking",
+        "//gen/idl/identity",
+        "//gen/idl/resource",
+        "//pkg/configloader",
+        "@com_github_redis_go_redis_v9//:go-redis",
+        "@com_github_rs_cors//:cors",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//credentials/insecure",
+        "@org_uber_go_fx//:fx",
+    ],
+)

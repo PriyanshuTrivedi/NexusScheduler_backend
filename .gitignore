@@ -9,3 +9,4 @@ bazel-nexusSchedulerBackend/
 
 # Environment variables / secrets
 .env
+.env.render-db

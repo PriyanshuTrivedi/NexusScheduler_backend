@@ -1,0 +1,94 @@
+services:
+  # ── Redis (Key Value) ──────────────────────────────────────────────
+  - type: keyvalue
+    name: nexus-redis
+    plan: starter
+    ipAllowList: []   # empty = only accessible from other Render services
+
+  # ── Identity (private, internal gRPC only) ─────────────────────────
+  - type: pserv
+    name: identity
+    runtime: go
+    plan: starter
+    buildCommand: go build -tags netgo -ldflags '-s -w' -o app ./code/identity
+    startCommand: ./app
+    envVars:
+      - key: ENV
+        value: production
+      - key: IDENTITY_POSTGRES_DSN
+        sync: false   # paste the Supabase Session Pooler DSN manually in the dashboard
+
+  # ── Resource (private, internal gRPC only) ─────────────────────────
+  - type: pserv
+    name: resource
+    runtime: go
+    plan: starter
+    buildCommand: go build -tags netgo -ldflags '-s -w' -o app ./code/resource
+    startCommand: ./app
+    envVars:
+      - key: ENV
+        value: production
+      - key: RESOURCE_POSTGRES_DSN
+        sync: false
+      - key: REDIS_ADDR
+        fromService:
+          name: nexus-redis
+          type: keyvalue
+          property: connectionString
+
+  # ── Booking (private, internal gRPC only) ───────────────────────────
+  - type: pserv
+    name: booking
+    runtime: go
+    plan: starter
+    buildCommand: go build -tags netgo -ldflags '-s -w' -o app ./code/booking
+    startCommand: ./app
+    envVars:
+      - key: ENV
+        value: production
+      - key: BOOKING_POSTGRES_DSN
+        sync: false
+      - key: REDIS_ADDR
+        fromService:
+          name: nexus-redis
+          type: keyvalue
+          property: connectionString
+      - key: BOOKING_SMTP_PASSWORD
+        sync: false
+
+  # ── API Gateway (public web service) ────────────────────────────────
+  - type: web
+    name: api-gateway
+    runtime: go
+    plan: starter
+    buildCommand: go build -tags netgo -ldflags '-s -w' -o app ./code/api-gateway
+    startCommand: ./app
+    envVars:
+      - key: ENV
+        value: production
+      - key: API_GATEWAY_JWT_SECRET
+        generateValue: true   # let Render generate a real production secret
+      - key: LOCATIONIQ_API_KEY
+        sync: false
+      - key: REDIS_ADDR
+        fromService:
+          name: nexus-redis
+          type: keyvalue
+          property: connectionString
+      - key: IDENTITY_GRPC_ADDR
+        fromService:
+          name: identity
+          type: pserv
+          property: hostport
+      - key: RESOURCE_GRPC_ADDR
+        fromService:
+          name: resource
+          type: pserv
+          property: hostport
+      - key: BOOKING_GRPC_ADDR
+        fromService:
+          name: booking
+          type: pserv
+          property: hostport
+      # PORT is injected automatically by Render on Web Services —
+      # your code change already reads it as a fallback for http_port

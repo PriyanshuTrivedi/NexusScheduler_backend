@@ -16,7 +16,7 @@ RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.10 \
     && go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 ENV PATH="/root/go/bin:${PATH}"
 
-RUN protoc --proto_path=. \
+RUN mkdir -p gen && protoc --proto_path=. \
     --go_out=paths=source_relative:gen --go-grpc_out=paths=source_relative:gen \
     idl/resource/resource.proto idl/booking/booking.proto idl/identity/identity.proto
 

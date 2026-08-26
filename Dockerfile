@@ -30,7 +30,7 @@ RUN go build -tags netgo -ldflags '-s -w' -o /out/api-gateway ./code/api-gateway
 # ---- Runtime stage ----
 FROM alpine:3.20
 
-RUN apk add --no-cache redis ca-certificates
+RUN apk add --no-cache redis ca-certificates tzdata
 
 WORKDIR /app
 

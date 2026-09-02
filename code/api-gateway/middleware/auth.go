@@ -25,6 +25,14 @@ func PrincipalFromContext(ctx context.Context) (Principal, bool) {
 	return p, ok
 }
 
+// WithPrincipalContext injects a Principal into ctx using the same context
+// key Auth() uses. Exported so handler tests (and any other caller outside
+// this package) can construct an authenticated request without going through
+// JWT signing/verification.
+func WithPrincipalContext(ctx context.Context, p Principal) context.Context {
+	return context.WithValue(ctx, principalKey, p)
+}
+
 // Verifier validates JWTs at the public edge. Identity is not called for
 // every request; the gateway owns JWT issuance and validation.
 type Verifier struct {

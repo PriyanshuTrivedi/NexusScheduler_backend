@@ -397,11 +397,80 @@ func (h *Handler) CreateBooking(w http.ResponseWriter, r *http.Request) {
 	}
 	p, _ := middleware.PrincipalFromContext(r.Context())
 	req.UserId = p.UserID
-	if userResp, userErr := h.Identity.GetUser(meta(r), &identitypb.GetUserRequest{UserId: p.UserID}); userErr == nil && userResp.User != nil && userResp.User.Identifier != nil {
-		req.UserEmail = userResp.User.Identifier.GetEmail()
+
+	var clientUser *identitypb.User
+	if userResp, userErr := h.Identity.GetUser(meta(r), &identitypb.GetUserRequest{UserId: p.UserID}); userErr == nil && userResp != nil {
+		clientUser = userResp.GetUser()
+		if clientUser != nil && clientUser.Identifier != nil {
+			req.UserEmail = clientUser.Identifier.GetEmail()
+		}
 	}
-	resp, e := h.Booking.CreateBooking(meta(r), req)
+
+	booking := &bookingpb.GetBookingStatusResponse{
+		UserId: req.GetUserId(), ResourceId: req.GetResourceId(),
+		StartUnix: req.GetStartUnix(), EndUnix: req.GetEndUnix(),
+		Title: req.GetTitle(), Subtitle: req.GetSubtitle(),
+	}
+	ctx := h.withBookingNotificationContext(r, booking, clientUser)
+	resp, e := h.Booking.CreateBooking(ctx, req)
 	call(w, resp, e)
+}
+
+func (h *Handler) withBookingNotificationContext(r *http.Request, booking *bookingpb.GetBookingStatusResponse, clientUser *identitypb.User) context.Context {
+	ctx := meta(r)
+	if booking == nil {
+		return ctx
+	}
+
+	if clientUser == nil && booking.GetUserId() != "" {
+		if resp, err := h.Identity.GetUser(meta(r), &identitypb.GetUserRequest{UserId: booking.GetUserId()}); err == nil && resp != nil {
+			clientUser = resp.GetUser()
+		}
+	}
+
+	clientName := ""
+	clientEmail := ""
+	if clientUser != nil {
+		clientName = clientUser.GetName()
+		if clientUser.GetIdentifier() != nil {
+			clientEmail = clientUser.GetIdentifier().GetEmail()
+		}
+	}
+
+	resourceName := ""
+	resourceEmail := ""
+	meetingMode := ""
+	address := ""
+
+	if booking.GetResourceId() != "" {
+		resp, err := h.Resource.SearchResources(meta(r), &resourcepb.SearchResourcesRequest{
+			Attributes: map[string]string{"__resource_id": booking.GetResourceId()},
+		})
+		if err == nil && resp != nil && len(resp.GetResources()) > 0 {
+			resource := resp.GetResources()[0]
+			resourceName = resource.GetName()
+			meetingMode = strings.TrimPrefix(resource.GetMeetingMode().String(), "MEETING_MODE_")
+			meetingMode = strings.ToLower(meetingMode)
+			attrs := resource.GetAttributes()
+			if attrs != nil {
+				address = strings.TrimSpace(attrs["address"])
+				resourceEmail = strings.TrimSpace(attrs["resource_email"])
+				if resourceEmail == "" {
+					resourceEmail = strings.TrimSpace(attrs["email"])
+				}
+			}
+		}
+	}
+
+	return metadata.AppendToOutgoingContext(
+		ctx,
+		"x-booking-client-name", clientName,
+		"x-booking-client-email", clientEmail,
+		"x-booking-resource-name", resourceName,
+		"x-booking-resource-email", resourceEmail,
+		"x-booking-meeting-mode", meetingMode,
+		"x-booking-address", address,
+	)
 }
 
 func (h *Handler) resourceSlotExists(r *http.Request, resourceID string, startUnix, endUnix int64) bool {
@@ -435,8 +504,10 @@ func (h *Handler) CancelBooking(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	current, _ := h.Booking.GetBookingStatus(meta(r), &bookingpb.GetBookingStatusRequest{ReferenceCode: ref})
+	ctx := h.withBookingNotificationContext(r, current, nil)
 	resp, e := h.Booking.CancelBooking(
-		meta(r),
+		ctx,
 		&bookingpb.CancelBookingRequest{
 			ReferenceCode: ref,
 		},
@@ -506,7 +577,13 @@ func (h *Handler) RescheduleBooking(w http.ResponseWriter, r *http.Request) {
 		)
 		return
 	}
-	resp, e := h.Booking.RescheduleBooking(meta(r), req)
+	ctx := h.withBookingNotificationContext(r, current, nil)
+	ctx = metadata.AppendToOutgoingContext(
+		ctx,
+		"x-booking-previous-start", strconv.FormatInt(current.GetStartUnix(), 10),
+		"x-booking-previous-end", strconv.FormatInt(current.GetEndUnix(), 10),
+	)
+	resp, e := h.Booking.RescheduleBooking(ctx, req)
 	call(w, resp, e)
 }
 

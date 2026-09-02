@@ -1,0 +1,24 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "template",
+    srcs = ["renderer.go"],
+    embedsrcs = [
+        "templates/booking_offline.html",
+        "templates/booking_online.html",
+        "templates/cancellation.html",
+        "templates/rescheduling.html",
+    ],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/mailer/template",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "template_test",
+    srcs = ["renderer_test.go"],
+    embed = [":template"],
+    deps = [
+        "//code/booking/entity",
+        "@com_github_stretchr_testify//assert",
+    ],
+)

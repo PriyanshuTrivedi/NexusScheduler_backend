@@ -10,6 +10,7 @@ go_library(
         "//code/booking/entity",
         "//code/booking/mailer",
         "//code/booking/store",
+        "//code/booking/util",
     ],
 )
 
@@ -19,8 +20,6 @@ go_test(
     embed = [":controller"],
     deps = [
         "//code/booking/entity",
-        "//code/booking/mailer",
-        "//code/booking/store",
         "//gen/mocks/booking/client",
         "//gen/mocks/booking/store",
         "@com_github_golang_mock//gomock",

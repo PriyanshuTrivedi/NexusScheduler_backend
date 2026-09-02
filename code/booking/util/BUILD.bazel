@@ -2,12 +2,16 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "util",
-    srcs = ["booking.go"],
+    srcs = [
+        "booking.go",
+        "notification.go",
+    ],
     importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/util",
     visibility = ["//visibility:public"],
     deps = [
         "//code/booking/entity",
         "//gen/idl/booking",
+        "@org_golang_google_grpc//metadata",
     ],
 )
 

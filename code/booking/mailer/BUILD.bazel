@@ -1,8 +1,23 @@
-load("@rules_go//go:def.bzl", "go_library")
+load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "mailer",
     srcs = ["mailer.go"],
     importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/mailer",
     visibility = ["//visibility:public"],
+    deps = [
+        "//code/booking/entity",
+        "//code/booking/mailer/smtp",
+        "//code/booking/mailer/template",
+    ],
+)
+
+go_test(
+    name = "mailer_test",
+    srcs = ["mailer_test.go"],
+    embed = [":mailer"],
+    deps = [
+        "//code/booking/entity",
+        "@com_github_stretchr_testify//assert",
+    ],
 )

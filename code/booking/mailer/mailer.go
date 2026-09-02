@@ -4,51 +4,56 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/smtp"
-	"time"
+
+	"github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/entity"
+	"github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/mailer/smtp"
+	templaterenderer "github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/mailer/template"
 )
 
+//go:generate mockgen -source=mailer.go -destination=../../../gen/mocks/booking/mailer/mailer_mock.go -package=mocks
+
 type Mailer interface {
-	SendBookingConfirmation(ctx context.Context, to, name, referenceCode, resourceID, title string, start, end time.Time) error
+	Send(ctx context.Context, email entity.BookingEmail) error
 }
 
-type Config struct {
-	Host     string
-	Port     int
-	Username string
-	Password string
-	From     string
+type mailer struct {
+	sender   smtp.Sender
+	renderer templaterenderer.Renderer
+	from     string
 }
 
-type SMTPMailer struct{ cfg Config }
-
-func NewSMTP(cfg Config) Mailer {
-	if cfg.Host == "" || cfg.From == "" {
-		return &ConsoleMailer{}
+func New(sender smtp.Sender, renderer templaterenderer.Renderer, from string) Mailer {
+	return &mailer{
+		sender:   sender,
+		renderer: renderer,
+		from:     from,
 	}
-	return &SMTPMailer{cfg: cfg}
 }
 
-func (m *SMTPMailer) SendBookingConfirmation(ctx context.Context, to, name, referenceCode, resourceID, title string, start, end time.Time) error {
-	_ = ctx
-	body := fmt.Sprintf("Hello %s,\n\nYour Nexus Scheduler booking is confirmed.\n\nReference: %s\nResource: %s\nTitle: %s\nStart: %s\nEnd: %s\n\nThank you.\n", name, referenceCode, resourceID, title, start.Format(time.RFC3339), end.Format(time.RFC3339))
-	return m.send(to, "Nexus Scheduler booking confirmation", body)
-}
-
-func (m *SMTPMailer) send(to, subject, body string) error {
-	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.Port)
-	headers := "From: " + m.cfg.From + "\r\n" + "To: " + to + "\r\n" + "Subject: " + subject + "\r\n" + "MIME-Version: 1.0\r\n" + "Content-Type: text/plain; charset=UTF-8\r\n\r\n"
-	var auth smtp.Auth
-	if m.cfg.Username != "" {
-		auth = smtp.PlainAuth("", m.cfg.Username, m.cfg.Password, m.cfg.Host)
+func (m *mailer) Send(ctx context.Context, email entity.BookingEmail) error {
+	if !email.IsSendable() {
+		return nil
 	}
-	return smtp.SendMail(addr, auth, m.cfg.From, []string{to}, []byte(headers+body))
-}
 
-type ConsoleMailer struct{}
+	if err := email.Validate(); err != nil {
+		return fmt.Errorf("booking email validation: %w", err)
+	}
 
-func (m *ConsoleMailer) SendBookingConfirmation(ctx context.Context, to, name, referenceCode, resourceID, title string, start, end time.Time) error {
-	_ = ctx
-	log.Printf("booking confirmation email to=%s name=%s reference=%s resource=%s title=%s start=%s end=%s", to, name, referenceCode, resourceID, title, start.Format(time.RFC3339), end.Format(time.RFC3339))
+	templateName := email.TemplateName()
+	if templateName == "" {
+		return fmt.Errorf("booking email: unsupported email type %q", email.Type)
+	}
+
+	body, err := m.renderer.Render(templateName, email)
+	if err != nil {
+		return err
+	}
+
+	if err := m.sender.Send(ctx, m.from, email.To, email.Subject(), body); err != nil {
+		return fmt.Errorf("booking email: send to %s: %w", email.To, err)
+	}
+
+	log.Printf("booking email sent: type=%s to=%s reference=%s", email.Type, email.To, email.ReferenceCode)
+
 	return nil
 }

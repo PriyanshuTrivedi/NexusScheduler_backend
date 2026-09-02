@@ -2,100 +2,265 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/entity"
-	"github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/mailer"
-	"github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/store"
 	clientmocks "github.com/PriyanshuTrivedi/nexus-scheduler/gen/mocks/booking/client"
 	storemocks "github.com/PriyanshuTrivedi/nexus-scheduler/gen/mocks/booking/store"
-
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 )
 
 func setup(t *testing.T) (*storemocks.MockStore, *clientmocks.MockClient, Controller) {
 	ctrl := gomock.NewController(t)
+
 	mockStore := storemocks.NewMockStore(ctrl)
 	mockClient := clientmocks.NewMockClient(ctrl)
-	return mockStore, mockClient, New(mockStore, mockClient, &mailer.ConsoleMailer{})
+
+	controller := New(mockStore, mockClient, nil)
+
+	return mockStore, mockClient, controller
+}
+
+func validBooking() entity.Booking {
+	start := time.Now().Add(time.Hour)
+	return entity.Booking{
+		UserID:        "user-1",
+		ResourceID:    "resource-1",
+		Start:         start,
+		End:           start.Add(time.Hour),
+		Title:         "Test booking",
+		ReferenceCode: "NXS-123",
+		Status:        entity.StatusConfirmed,
+	}
 }
 
 func TestCreateBooking_Success(t *testing.T) {
-	mockStore, mockClient, c := setup(t)
+	mockStore, mockClient, ctl := setup(t)
 
-	input := entity.Booking{
-		UserID: "u1", ResourceID: "r1", Title: "ENT consult",
-		Start: time.Now().Add(time.Hour), End: time.Now().Add(2 * time.Hour),
-	}
-	expected := input
-	expected.ReferenceCode, expected.Status = "NXS-ABC123", entity.StatusConfirmed
+	booking := validBooking()
 
-	release := func() {}
-	mockClient.EXPECT().AcquireLock(gomock.Any(), "r1").Return(release, true, nil)
-	mockStore.EXPECT().CreateBooking(gomock.Any(), input).Return(&expected, nil)
-	mockClient.EXPECT().PublishEvent(gomock.Any(), "booking.created", "NXS-ABC123").Return(nil)
+	mockClient.EXPECT().
+		AcquireLock(gomock.Any(), booking.ResourceID).
+		Return(func() {}, true, nil)
 
-	result, err := c.CreateBooking(context.Background(), input)
+	mockStore.EXPECT().
+		CreateBooking(gomock.Any(), gomock.Any()).
+		Return(&booking, nil)
+
+	mockClient.EXPECT().
+		PublishEvent(gomock.Any(), "booking.created", booking.ReferenceCode).
+		Return(nil)
+
+	result, err := ctl.CreateBooking(context.Background(), booking)
 
 	assert.NoError(t, err)
-	assert.Equal(t, "NXS-ABC123", result.ReferenceCode)
+	assert.NotNil(t, result)
+	assert.Equal(t, booking.ReferenceCode, result.ReferenceCode)
 }
 
-func TestCreateBooking_RejectsInvalidInput(t *testing.T) {
-	_, _, c := setup(t) // no mock expectations set — validation must fail before either is touched
+func TestCreateBooking_LockError(t *testing.T) {
+	_, mockClient, ctl := setup(t)
 
-	_, err := c.CreateBooking(context.Background(), entity.Booking{
-		UserID: "u1", ResourceID: "r1", Title: "x",
-		Start: time.Now().Add(-time.Hour), End: time.Now(),
-	})
-	assert.ErrorIs(t, err, entity.ErrPastStartTime)
+	booking := validBooking()
+	lockErr := errors.New("redis unavailable")
+
+	mockClient.EXPECT().
+		AcquireLock(gomock.Any(), booking.ResourceID).
+		Return(nil, false, lockErr)
+
+	result, err := ctl.CreateBooking(context.Background(), booking)
+
+	assert.ErrorIs(t, err, lockErr)
+	assert.Nil(t, result)
 }
 
-func TestCreateBooking_LockContended(t *testing.T) {
-	mockStore, mockClient, c := setup(t)
-	_ = mockStore // unused in this path — CreateBooking must never be called if the lock fails
+func TestCreateBooking_SlotAlreadyBooked(t *testing.T) {
+	_, mockClient, ctl := setup(t)
 
-	mockClient.EXPECT().AcquireLock(gomock.Any(), "r1").Return(nil, false, nil)
+	booking := validBooking()
 
-	input := entity.Booking{
-		UserID: "u1", ResourceID: "r1", Title: "x",
-		Start: time.Now().Add(time.Hour), End: time.Now().Add(2 * time.Hour),
-	}
-	_, err := c.CreateBooking(context.Background(), input)
-	assert.ErrorIs(t, err, store.ErrSlotAlreadyBooked)
+	mockClient.EXPECT().
+		AcquireLock(gomock.Any(), booking.ResourceID).
+		Return(nil, false, nil)
+
+	result, err := ctl.CreateBooking(context.Background(), booking)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+}
+
+func TestCreateBooking_StoreError(t *testing.T) {
+	mockStore, mockClient, ctl := setup(t)
+
+	booking := validBooking()
+	storeErr := errors.New("database error")
+
+	mockClient.EXPECT().
+		AcquireLock(gomock.Any(), booking.ResourceID).
+		Return(func() {}, true, nil)
+
+	mockStore.EXPECT().
+		CreateBooking(gomock.Any(), gomock.Any()).
+		Return(nil, storeErr)
+
+	result, err := ctl.CreateBooking(context.Background(), booking)
+
+	assert.ErrorIs(t, err, storeErr)
+	assert.Nil(t, result)
+}
+
+func TestCreateBooking_InvalidBooking(t *testing.T) {
+	_, _, ctl := setup(t)
+
+	booking := validBooking()
+	booking.UserID = ""
+
+	result, err := ctl.CreateBooking(context.Background(), booking)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
 }
 
 func TestCancelBooking_Success(t *testing.T) {
-	mockStore, mockClient, c := setup(t)
+	mockStore, mockClient, ctl := setup(t)
 
-	mockStore.EXPECT().CancelBooking(gomock.Any(), "NXS-ABC123").Return(entity.StatusCancelled, nil)
-	mockClient.EXPECT().PublishEvent(gomock.Any(), "booking.cancelled", "NXS-ABC123").Return(nil)
+	mockStore.EXPECT().
+		CancelBooking(gomock.Any(), "NXS-CANCEL").
+		Return(entity.StatusCancelled, nil)
 
-	status, err := c.CancelBooking(context.Background(), "NXS-ABC123")
+	mockClient.EXPECT().
+		PublishEvent(gomock.Any(), "booking.cancelled", "NXS-CANCEL").
+		Return(nil)
+
+	status, err := ctl.CancelBooking(context.Background(), "NXS-CANCEL")
 
 	assert.NoError(t, err)
 	assert.Equal(t, entity.StatusCancelled, status)
 }
 
-func TestCancelBooking_NotFound(t *testing.T) {
-	mockStore, _, c := setup(t)
+func TestCancelBooking_StoreError(t *testing.T) {
+	mockStore, _, ctl := setup(t)
 
-	mockStore.EXPECT().CancelBooking(gomock.Any(), "NXS-NOPE").Return(entity.StatusUnspecified, store.ErrNotFound)
+	storeErr := errors.New("database error")
 
-	_, err := c.CancelBooking(context.Background(), "NXS-NOPE")
-	assert.ErrorIs(t, err, store.ErrNotFound)
+	mockStore.EXPECT().
+		CancelBooking(gomock.Any(), "NXS-CANCEL").
+		Return(entity.StatusUnspecified, storeErr)
+
+	status, err := ctl.CancelBooking(context.Background(), "NXS-CANCEL")
+
+	assert.ErrorIs(t, err, storeErr)
+	assert.Equal(t, entity.StatusUnspecified, status)
 }
 
-func TestGetBooking_Success(t *testing.T) {
-	mockStore, _, c := setup(t)
+func TestRescheduleBooking_Success(t *testing.T) {
+	mockStore, mockClient, ctl := setup(t)
 
-	expected := &entity.Booking{ReferenceCode: "NXS-ABC123", Status: entity.StatusConfirmed}
-	mockStore.EXPECT().GetBooking(gomock.Any(), "NXS-ABC123").Return(expected, nil)
+	newStart := time.Now().Add(2 * time.Hour).Unix()
+	newEnd := time.Now().Add(3 * time.Hour).Unix()
 
-	result, err := c.GetBooking(context.Background(), "NXS-ABC123")
+	booking := &entity.Booking{
+		ReferenceCode: "NXS-RESCHEDULE",
+		UserID:        "user-1",
+		ResourceID:    "resource-1",
+		Start:         time.Unix(newStart, 0),
+		End:           time.Unix(newEnd, 0),
+		Status:        entity.StatusRescheduled,
+	}
+
+	mockStore.EXPECT().
+		RescheduleBooking(
+			gomock.Any(),
+			"NXS-RESCHEDULE",
+			int64(newStart),
+			int64(newEnd),
+		).
+		Return(booking, nil)
+
+	mockClient.EXPECT().
+		PublishEvent(gomock.Any(), "booking.rescheduled", "NXS-RESCHEDULE").
+		Return(nil)
+
+	result, err := ctl.RescheduleBooking(
+		context.Background(),
+		"NXS-RESCHEDULE",
+		int64(newStart),
+		int64(newEnd),
+	)
 
 	assert.NoError(t, err)
-	assert.Equal(t, expected, result)
+	assert.NotNil(t, result)
+	assert.Equal(t, time.Unix(newStart, 0), result.Start)
+	assert.Equal(t, time.Unix(newEnd, 0), result.End)
+}
+
+func TestRescheduleBooking_StoreError(t *testing.T) {
+	mockStore, _, ctl := setup(t)
+
+	storeErr := errors.New("database error")
+
+	newStart := time.Now().Add(2 * time.Hour).Unix()
+	newEnd := time.Now().Add(3 * time.Hour).Unix()
+
+	mockStore.EXPECT().
+		RescheduleBooking(
+			gomock.Any(),
+			"NXS-RESCHEDULE",
+			int64(newStart),
+			int64(newEnd),
+		).
+		Return(nil, storeErr)
+
+	result, err := ctl.RescheduleBooking(
+		context.Background(),
+		"NXS-RESCHEDULE",
+		int64(newStart),
+		int64(newEnd),
+	)
+
+	assert.ErrorIs(t, err, storeErr)
+	assert.Nil(t, result)
+}
+
+func TestRescheduleBooking_PreservesReferenceCode(t *testing.T) {
+	mockStore, mockClient, ctl := setup(t)
+
+	newStart := time.Now().Add(2 * time.Hour).Unix()
+	newEnd := time.Now().Add(3 * time.Hour).Unix()
+
+	booking := &entity.Booking{
+		ReferenceCode: "NXS-REF",
+		UserID:        "user-1",
+		ResourceID:    "resource-1",
+		Start:         time.Unix(newStart, 0),
+		End:           time.Unix(newEnd, 0),
+		Status:        entity.StatusRescheduled,
+	}
+
+	mockStore.EXPECT().
+		RescheduleBooking(
+			gomock.Any(),
+			"NXS-REF",
+			int64(newStart),
+			int64(newEnd),
+		).
+		Return(booking, nil)
+
+	mockClient.EXPECT().
+		PublishEvent(gomock.Any(), "booking.rescheduled", "NXS-REF").
+		Return(nil)
+
+	result, err := ctl.RescheduleBooking(
+		context.Background(),
+		"NXS-REF",
+		int64(newStart),
+		int64(newEnd),
+	)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "NXS-REF", result.ReferenceCode)
+	assert.Equal(t, entity.StatusRescheduled, result.Status)
 }

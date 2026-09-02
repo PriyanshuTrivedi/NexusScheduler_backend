@@ -1,17 +1,9 @@
-// module.go wires the booking service's dependency graph. Config loads, the
-// Postgres pool, the Redis client, store, client, controller, handler, and
-// the gRPC server bootstrap are each provided declaratively; fx resolves the
-// graph and constructs everything in the correct order at startup (Section
-// 9.3). Lives in package main alongside main.go, mirroring Booking's flat
-// per-service layout — module.go and main.go are the two files in code/
-// booking/ (and here, code/booking/) that are not inside their own layer
-// subfolder.
 package config
 
 import (
 	"context"
 	"fmt"
-	"os"
+	"strconv"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -22,26 +14,17 @@ import (
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/controller"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/handler"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/mailer"
+	"github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/mailer/smtp"
+	mailertemplate "github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/mailer/template"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/store"
 	bookingpb "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/booking"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/pkg/configloader"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/pkg/grpcserver"
 )
 
-// Config is booking's environment-scoped configuration (dev/staging/
-// production yaml). Secrets — the Postgres DSN and Redis address — are never
-// read from these files; they come from the environment (Section 9.4).
 type Config struct {
-	GRPCPort int        `yaml:"grpc_port"`
-	Env      string     `yaml:"env"`
-	Mail     MailConfig `yaml:"mail"`
-}
-
-type MailConfig struct {
-	Host     string `yaml:"host"`
-	Port     int    `yaml:"port"`
-	Username string `yaml:"username"`
-	From     string `yaml:"from"`
+	GRPCPort int    `yaml:"grpc_port"`
+	Env      string `yaml:"env"`
 }
 
 func loadConfig() (Config, error) {
@@ -63,18 +46,34 @@ func newPostgresPool() (*pgxpool.Pool, error) {
 
 func newRedisClient() *redis.Client {
 	addr := configloader.MustGetEnv("REDIS_ADDR")
-	return redis.NewClient(&redis.Options{Addr: addr})
+
+	return redis.NewClient(&redis.Options{
+		Addr: addr,
+	})
 }
 
 func grpcServerConfig(cfg Config) grpcserver.Config {
-	return grpcserver.Config{Port: cfg.GRPCPort}
+	return grpcserver.Config{
+		Port: cfg.GRPCPort,
+	}
 }
 
-func newMailer(cfg Config) mailer.Mailer {
-	return mailer.NewSMTP(mailer.Config{
-		Host: cfg.Mail.Host, Port: cfg.Mail.Port, Username: cfg.Mail.Username,
-		Password: os.Getenv("BOOKING_SMTP_PASSWORD"), From: cfg.Mail.From,
-	})
+func newMailer() (mailer.Mailer, error) {
+	host := configloader.MustGetEnv("BOOKING_SMTP_HOST")
+	portStr := configloader.MustGetEnv("BOOKING_SMTP_PORT")
+	username := configloader.MustGetEnv("BOOKING_SMTP_USERNAME")
+	password := configloader.MustGetEnv("BOOKING_SMTP_PASSWORD")
+	from := configloader.MustGetEnv("BOOKING_SMTP_FROM")
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return nil, fmt.Errorf("booking: invalid BOOKING_SMTP_PORT: %w", err)
+	}
+
+	smtpSender := smtp.New(host, port, username, password)
+	renderer := mailertemplate.NewRenderer()
+
+	return mailer.New(smtpSender, renderer, from), nil
 }
 
 func registerHandler(server *grpc.Server, h *handler.Handler) {

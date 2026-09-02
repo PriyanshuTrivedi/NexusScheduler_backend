@@ -24,11 +24,13 @@ go_test(
     deps = [
         "//code/booking/entity",
         "//code/booking/store",
+        "//code/booking/util",
         "//gen/idl/booking",
         "//gen/mocks/booking/controller",
         "@com_github_golang_mock//gomock",
         "@com_github_stretchr_testify//assert",
         "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//metadata",
         "@org_golang_google_grpc//status",
     ],
 )

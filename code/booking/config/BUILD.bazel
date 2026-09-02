@@ -11,6 +11,8 @@ go_library(
         "//code/booking/controller",
         "//code/booking/handler",
         "//code/booking/mailer",
+        "//code/booking/mailer/smtp",
+        "//code/booking/mailer/template",
         "//code/booking/store",
         "//gen/idl/booking",
         "//pkg/configloader",

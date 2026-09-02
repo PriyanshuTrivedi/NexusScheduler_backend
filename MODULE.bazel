@@ -22,6 +22,7 @@ use_repo(
     "com_github_redis_go_redis_v9",
     "com_github_rs_cors",
     "com_github_stretchr_testify",
+    "in_gopkg_gomail_v2",
     "in_gopkg_yaml_v3",
     "org_golang_google_grpc",
     "org_golang_google_protobuf",

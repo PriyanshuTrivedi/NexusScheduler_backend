@@ -6,7 +6,7 @@ import (
 	"log"
 
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/entity"
-	"github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/mailer/smtp"
+	"github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/mailer/risumailer"
 	templaterenderer "github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/mailer/template"
 )
 
@@ -17,12 +17,12 @@ type Mailer interface {
 }
 
 type mailer struct {
-	sender   smtp.Sender
+	sender   risumailer.Sender
 	renderer templaterenderer.Renderer
 	from     string
 }
 
-func New(sender smtp.Sender, renderer templaterenderer.Renderer, from string) Mailer {
+func New(sender risumailer.Sender, renderer templaterenderer.Renderer, from string) Mailer {
 	return &mailer{
 		sender:   sender,
 		renderer: renderer,
@@ -49,11 +49,11 @@ func (m *mailer) Send(ctx context.Context, email entity.BookingEmail) error {
 		return err
 	}
 
-	if err := m.sender.Send(ctx, m.from, email.To, email.Subject(), body); err != nil {
+	err = m.sender.Send(ctx, m.from, email.To, email.Subject(), body)
+	if err != nil {
 		return fmt.Errorf("booking email: send to %s: %w", email.To, err)
 	}
 
 	log.Printf("booking email sent: type=%s to=%s reference=%s", email.Type, email.To, email.ReferenceCode)
-
 	return nil
 }

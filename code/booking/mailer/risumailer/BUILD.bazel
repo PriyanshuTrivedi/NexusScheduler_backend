@@ -1,0 +1,15 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "risumailer",
+    srcs = ["risumailer.go"],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/mailer/risumailer",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "risumailer_test",
+    srcs = ["risumailer_test.go"],
+    embed = [":risumailer"],
+    deps = ["@com_github_stretchr_testify//require"],
+)

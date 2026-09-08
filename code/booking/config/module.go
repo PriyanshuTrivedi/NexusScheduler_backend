@@ -3,7 +3,6 @@ package config
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -14,7 +13,7 @@ import (
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/controller"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/handler"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/mailer"
-	"github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/mailer/smtp"
+	"github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/mailer/risumailer"
 	mailertemplate "github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/mailer/template"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/booking/store"
 	bookingpb "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/booking"
@@ -59,23 +58,13 @@ func grpcServerConfig(cfg Config) grpcserver.Config {
 }
 
 func newMailer() (mailer.Mailer, error) {
-	host := configloader.MustGetEnv("BOOKING_SMTP_HOST")
-	portStr := configloader.MustGetEnv("BOOKING_SMTP_PORT")
-	username := configloader.MustGetEnv("BOOKING_SMTP_USERNAME")
-	password := configloader.MustGetEnv("BOOKING_SMTP_PASSWORD")
-	from := configloader.MustGetEnv("BOOKING_SMTP_FROM")
+	apiKey := configloader.MustGetEnv("RISU_API_KEY")
 
-	port, err := strconv.Atoi(portStr)
-	if err != nil {
-		return nil, fmt.Errorf("booking: invalid BOOKING_SMTP_PORT: %w", err)
-	}
-
-	smtpSender := smtp.New(host, port, username, password)
+	risuSender := risumailer.New(apiKey, "")
 	renderer := mailertemplate.NewRenderer()
 
-	return mailer.New(smtpSender, renderer, from), nil
+	return mailer.New(risuSender, renderer, ""), nil
 }
-
 func registerHandler(server *grpc.Server, h *handler.Handler) {
 	bookingpb.RegisterBookingServiceServer(server, h)
 }

@@ -29,15 +29,19 @@ echo "starting resource..."
 echo "starting booking..."
 /app/booking &
 
-# Crude but effective: give the gRPC servers a moment to bind their ports
-# before api-gateway's fx startup tries to dial them. All 4 processes log
-# to the same stdout, so this also keeps the log ordering readable.
-sleep 3
+echo "waiting for services..."
 
-echo "starting api-gateway (foreground)..."
-# Run api-gateway as the foreground process so it receives signals directly
-# and its exit ends the container, while backgrounded services above are
-# cleaned up by the trap.
+for i in $(seq 1 30); do
+    if nc -z 127.0.0.1 9002 &&
+       nc -z 127.0.0.1 9003 &&
+       nc -z 127.0.0.1 9004; then
+        echo "all gRPC services are ready"
+        break
+    fi
+    sleep 1
+done
+
+echo "starting api-gateway..."
 /app/api-gateway &
 API_PID=$!
 wait $API_PID

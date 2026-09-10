@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+
 	pb "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/resource"
 	"google.golang.org/grpc"
 )
@@ -14,6 +15,7 @@ type ResourceClient interface {
 	SetResourceTypeStatus(context.Context, *pb.SetResourceTypeStatusRequest, ...grpc.CallOption) (*pb.SetResourceTypeStatusResponse, error)
 	DeleteResourceType(context.Context, *pb.DeleteResourceTypeRequest, ...grpc.CallOption) (*pb.DeleteResourceTypeResponse, error)
 	CreateResource(context.Context, *pb.CreateResourceRequest, ...grpc.CallOption) (*pb.CreateResourceResponse, error)
+	UpdateResource(context.Context, *pb.UpdateResourceRequest, ...grpc.CallOption) (*pb.UpdateResourceResponse, error)
 	SetResourceStatus(context.Context, *pb.SetResourceStatusRequest, ...grpc.CallOption) (*pb.SetResourceStatusResponse, error)
 	DeleteResource(context.Context, *pb.DeleteResourceRequest, ...grpc.CallOption) (*pb.DeleteResourceResponse, error)
 	SetRecurringAvailability(context.Context, *pb.SetRecurringAvailabilityRequest, ...grpc.CallOption) (*pb.SetRecurringAvailabilityResponse, error)

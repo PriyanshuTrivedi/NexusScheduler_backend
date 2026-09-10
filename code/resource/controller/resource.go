@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/resource/client"
+	"github.com/PriyanshuTrivedi/nexus-scheduler/code/resource/client/locationIQ"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/resource/entity"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/resource/store"
+	"github.com/PriyanshuTrivedi/nexus-scheduler/code/resource/util"
 )
 
 const (
@@ -25,6 +27,7 @@ type Controller interface {
 	SetResourceTypeStatus(ctx context.Context, resourceTypeID string, isActive bool) (entity.ResourceType, error)
 	DeleteResourceType(ctx context.Context, resourceTypeID string) error
 	CreateResource(ctx context.Context, r entity.Resource) (resourceID string, err error)
+	UpdateResource(ctx context.Context, r entity.Resource) (resourceID string, err error)
 	SetResourceStatus(ctx context.Context, resourceID string, isActive bool) error
 	DeleteResource(ctx context.Context, resourceID string) error
 	SetRecurringAvailability(ctx context.Context, resourceID string, rules []entity.RecurrenceRule) (slotsGenerated int, err error)
@@ -36,13 +39,19 @@ type Controller interface {
 }
 
 type resourceController struct {
-	store          store.Store
-	client         client.Client
-	expansionWeeks int
+	store            store.Store
+	client           client.Client
+	locationIQClinet locationIQ.LocationIQClient
+	expansionWeeks   int
 }
 
-func New(s store.Store, c client.Client) Controller {
-	return &resourceController{store: s, client: c, expansionWeeks: defaultExpansionWeeks}
+func New(s store.Store, c client.Client, lc locationIQ.LocationIQClient) Controller {
+	return &resourceController{
+		store:            s,
+		client:           c,
+		locationIQClinet: lc,
+		expansionWeeks:   defaultExpansionWeeks,
+	}
 }
 
 func (c *resourceController) ListResourceTypes(ctx context.Context) ([]entity.ResourceType, error) {
@@ -76,8 +85,29 @@ func (c *resourceController) DeleteResourceType(ctx context.Context, resourceTyp
 }
 
 func (c *resourceController) CreateResource(ctx context.Context, r entity.Resource) (string, error) {
-	if err := r.Validate(); err != nil {
+	if err := util.ValidateResourceCreate(r); err != nil {
 		return "", err
+	}
+	if r.Attributes == nil {
+		r.Attributes = make(map[string]string)
+	}
+	address := r.Address
+	if r.MeetingMode.RequiresLocation() {
+		if address == nil {
+			return "", entity.ErrLocationRequired
+		}
+		coordinates, err := c.locationIQClinet.GetCoordinates(ctx, *address)
+		if err != nil {
+			return "", err
+		}
+		if len(coordinates) == 0 {
+			return "", entity.ErrLocationRequired
+		}
+		if r.Attributes == nil {
+			r.Attributes = make(map[string]string)
+		}
+		r.Attributes["address"] = *r.Address
+		r.Coordinate = &coordinates[0]
 	}
 	slots, err := c.expandRecurrence(r.Recurrence, time.Now())
 	if err != nil {
@@ -91,31 +121,29 @@ func (c *resourceController) CreateResource(ctx context.Context, r entity.Resour
 	return id, nil
 }
 
-// UpdateResource is deliberately kept out of the public Controller interface.
-// The gRPC CreateResource RPC is reused internally for the authenticated
-// resource-profile update path, while creation remains the public operation.
-func (c *resourceController) UpdateResource(ctx context.Context, userID, name string, mode entity.MeetingMode, lat, lng *float64, attributes map[string]string) (string, error) {
-	if userID == "" {
-		return "", entity.ErrInvalidUserID
+func (c *resourceController) UpdateResource(ctx context.Context, r entity.Resource) (string, error) {
+	if err := util.ValidateResourceUpdate(r); err != nil {
+		return "", err
 	}
-	if name == "" {
-		return "", entity.ErrInvalidName
+	if r.Attributes == nil {
+		r.Attributes = make(map[string]string)
 	}
-	if !mode.Valid() {
-		return "", entity.ErrInvalidMeetingMode
+	address := r.Address
+	if address != nil {
+		coordinates, err := c.locationIQClinet.GetCoordinates(ctx, *address)
+		if err != nil {
+			return "", err
+		}
+		if len(coordinates) == 0 {
+			return "", entity.ErrLocationRequired
+		}
+		if r.Attributes == nil {
+			r.Attributes = make(map[string]string)
+		}
+		r.Attributes["address"] = *r.Address
+		r.Coordinate = &coordinates[0]
 	}
-	if mode.RequiresLocation() && (lat == nil || lng == nil) {
-		return "", entity.ErrLocationRequired
-	}
-
-	updater, ok := c.store.(interface {
-		UpdateResource(context.Context, string, string, entity.MeetingMode, *float64, *float64, map[string]string) (string, error)
-	})
-	if !ok {
-		return "", fmt.Errorf("resource: update operation is unavailable")
-	}
-
-	resourceID, err := updater.UpdateResource(ctx, userID, name, mode, lat, lng, attributes)
+	resourceID, err := c.store.UpdateResource(ctx, r)
 	if err != nil {
 		return "", err
 	}

@@ -36,6 +36,7 @@ type Store interface {
 	SetResourceTypeStatus(ctx context.Context, resourceTypeID string, isActive bool) (entity.ResourceType, error)
 	DeleteResourceType(ctx context.Context, resourceTypeID string) error
 	CreateResource(ctx context.Context, r entity.Resource, slots []entity.Slot) (string, error)
+	UpdateResource(ctx context.Context, r entity.Resource) (string, error)
 	SetResourceStatus(ctx context.Context, resourceID string, isActive bool) (*string, error)
 	DeleteResource(ctx context.Context, resourceID string) (*string, error)
 	ReplaceRecurrence(ctx context.Context, resourceID string, rules []entity.RecurrenceRule, slots []entity.Slot, regenerateFrom time.Time) (int, error)
@@ -165,6 +166,16 @@ func (s *pgStore) DeleteResourceType(ctx context.Context, resourceTypeID string)
 }
 
 func (s *pgStore) CreateResource(ctx context.Context, r entity.Resource, slots []entity.Slot) (string, error) {
+	var lat, lng *float64
+	if r.MeetingMode.RequiresLocation() {
+		_, ok := r.Attributes["address"]
+		if r.Address == nil && r.Coordinate == nil || !ok {
+			return "", fmt.Errorf("store: address not found")
+		}
+		lat = &r.Coordinate.Latitude
+		lng = &r.Coordinate.Longitude
+	}
+
 	attrJSON, err := json.Marshal(r.Attributes)
 	if err != nil {
 		return "", fmt.Errorf("store: marshal attributes: %w", err)
@@ -178,7 +189,9 @@ func (s *pgStore) CreateResource(ctx context.Context, r entity.Resource, slots [
 
 	var typeID string
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT id FROM %s WHERE id = $1 AND is_active = TRUE FOR SHARE
+		SELECT id FROM %s
+		WHERE id = $1 AND is_active = TRUE
+		FOR SHARE
 	`, tableResourceType), r.ResourceTypeID).Scan(&typeID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", ErrResourceTypeNotFound
@@ -188,13 +201,47 @@ func (s *pgStore) CreateResource(ctx context.Context, r entity.Resource, slots [
 
 	var resourceID string
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
-		INSERT INTO %s (tenant_type, org_id, user_id, resource_type_id, name, meeting_mode, location, attributes, is_active)
-		VALUES ($1, NULLIF($2, '')::uuid, NULLIF($3, '')::uuid, $4, $5, $6,
-			CASE WHEN $7::double precision IS NULL THEN NULL
-			     ELSE ST_SetSRID(ST_MakePoint($7, $8), 4326)::geography END,
-			$9::jsonb, TRUE)
-		RETURNING id`, tableResource),
-		r.TenantType.String(), r.OrgID, r.UserID, r.ResourceTypeID, r.Name, int32(r.MeetingMode), r.Longitude, r.Latitude, attrJSON,
+		INSERT INTO %s (
+			tenant_type,
+			org_id,
+			user_id,
+			resource_type_id,
+			name,
+			meeting_mode,
+			location,
+			attributes,
+			is_active
+		)
+		VALUES (
+			$1,
+			NULLIF($2, '')::uuid,
+			NULLIF($3, '')::uuid,
+			$4,
+			$5,
+			$6,
+			CASE
+				WHEN $7::double precision IS NULL
+					OR $8::double precision IS NULL
+				THEN NULL
+				ELSE ST_SetSRID(
+					ST_MakePoint($7, $8),
+					4326
+				)::geography
+			END,
+			$9::jsonb,
+			TRUE
+		)
+		RETURNING id
+	`, tableResource),
+		r.TenantType.String(),
+		r.OrgID,
+		r.UserID,
+		r.ResourceTypeID,
+		r.Name,
+		int32(r.MeetingMode),
+		lng,
+		lat,
+		attrJSON,
 	).Scan(&resourceID)
 	if err != nil {
 		return "", fmt.Errorf("store: insert resource: %w", err)
@@ -212,23 +259,18 @@ func (s *pgStore) CreateResource(ctx context.Context, r entity.Resource, slots [
 	return resourceID, nil
 }
 
-// UpdateResource changes only fields that a resource owner is allowed to edit.
-// Resource type, tenant type, and organization are intentionally immutable.
-func (s *pgStore) UpdateResource(ctx context.Context, userID, name string, mode entity.MeetingMode, lat, lng *float64, attributes map[string]string) (string, error) {
-	if userID == "" {
-		return "", entity.ErrInvalidUserID
-	}
-	if name == "" {
-		return "", entity.ErrInvalidName
-	}
-	if !mode.Valid() {
-		return "", entity.ErrInvalidMeetingMode
-	}
-	if mode.RequiresLocation() && (lat == nil || lng == nil) {
-		return "", entity.ErrLocationRequired
+func (s *pgStore) UpdateResource(ctx context.Context, r entity.Resource) (string, error) {
+	var lat, lng *float64
+	if r.MeetingMode.RequiresLocation() {
+		_, ok := r.Attributes["address"]
+		if r.Address == nil && r.Coordinate == nil || !ok {
+			return "", fmt.Errorf("store: address not found")
+		}
+		lat = &r.Coordinate.Latitude
+		lng = &r.Coordinate.Longitude
 	}
 
-	attrJSON, err := json.Marshal(attributes)
+	attrJSON, err := json.Marshal(r.Attributes)
 	if err != nil {
 		return "", fmt.Errorf("store: marshal resource attributes: %w", err)
 	}
@@ -237,17 +279,30 @@ func (s *pgStore) UpdateResource(ctx context.Context, userID, name string, mode 
 	err = s.pool.QueryRow(ctx, fmt.Sprintf(`
 		UPDATE %s
 		SET name = $2,
-		    meeting_mode = $3,
+		    org_id = NULLIF($3, '')::uuid,
+		    meeting_mode = $4,
 		    location = CASE
-		        WHEN $4::double precision IS NULL OR $5::double precision IS NULL
-		            THEN NULL
-		        ELSE ST_SetSRID(ST_MakePoint($4, $5), 4326)::geography
+		        WHEN $5::double precision IS NULL
+		            OR $6::double precision IS NULL
+		        THEN NULL
+		        ELSE ST_SetSRID(
+		            ST_MakePoint($5, $6),
+		            4326
+		        )::geography
 		    END,
-		    attributes = $6::jsonb,
+		    attributes = $7::jsonb,
 		    updated_at = now()
-		WHERE user_id = $1
+		WHERE id = $1
 		RETURNING id
-	`, tableResource), userID, name, int32(mode), lng, lat, attrJSON).Scan(&resourceID)
+	`, tableResource),
+		r.ID,
+		r.Name,
+		r.OrgID,
+		int32(r.MeetingMode),
+		lng,
+		lat,
+		attrJSON,
+	).Scan(&resourceID)
 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrResourceNotFound

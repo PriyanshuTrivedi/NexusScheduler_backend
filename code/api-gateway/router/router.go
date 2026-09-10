@@ -42,7 +42,7 @@ func New(h *handler.Handler, auth *middleware.Verifier, limiter middleware.RateL
 	mux.Handle("POST /api/v1/resource-types", public(http.HandlerFunc(h.CreateResourceType)))
 
 	mux.Handle("POST /api/v1/resources", resource(http.HandlerFunc(h.CreateResource)))
-	mux.Handle("PUT /api/v1/resources/me", resource(http.HandlerFunc(h.UpdateResourceProfile)))
+	mux.Handle("PUT /api/v1/resources/me", resource(http.HandlerFunc(h.UpdateResource)))
 	mux.Handle("GET /api/v1/resources/me", resource(http.HandlerFunc(h.GetMyResource)))
 	mux.Handle("GET /api/v1/resources/me/upcoming", resource(http.HandlerFunc(h.ListResourceUpcomingBookings)))
 	mux.Handle("GET /api/v1/resources/me/availability", resource(http.HandlerFunc(h.GetMyAvailability)))
@@ -64,6 +64,5 @@ func New(h *handler.Handler, auth *middleware.Verifier, limiter middleware.RateL
 	mux.Handle("GET /api/v1/bookings/me/past", authn(http.HandlerFunc(h.ListPastBookings)))
 	mux.Handle("GET /api/v1/bookings/{reference}", authn(http.HandlerFunc(h.GetBooking)))
 
-	mux.Handle("GET /api/v1/geocode", public(http.HandlerFunc(h.Geocode)))
 	return mux
 }

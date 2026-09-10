@@ -73,12 +73,7 @@ func (s *sender) Send(ctx context.Context, from, to, subject, body string) error
 		return fmt.Errorf("risu send: marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		apiURL,
-		bytes.NewReader(payload),
-	)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("risu send: create request: %w", err)
 	}

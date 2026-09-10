@@ -30,21 +30,74 @@ func TestRecurrenceRulesRoundTrip(t *testing.T) {
 }
 
 func TestResourceFromCreateRequest(t *testing.T) {
-	lat, lng := 12.9716, 77.5946
-	req := &pb.CreateResourceRequest{TenantType: pb.TenantType_TENANT_TYPE_ORG, OrgId: "org-1", ResourceTypeId: "type-1", Name: "Dr. Rakesh", MeetingMode: pb.MeetingMode_MEETING_MODE_OFFLINE, Lat: &lat, Lng: &lng, Attributes: map[string]string{"department": "ENT"}}
+	req := &pb.CreateResourceRequest{
+		UserId:         "user-1",
+		TenantType:     pb.TenantType_TENANT_TYPE_ORG,
+		OrgId:          "org-1",
+		ResourceTypeId: "type-1",
+		Name:           "Dr. Rakesh",
+		MeetingMode:    pb.MeetingMode_MEETING_MODE_OFFLINE,
+		Address:        stringPtr("MG Road, Bangalore"),
+		Attributes:     map[string]string{"department": "ENT"},
+	}
+
 	r := ResourceFromCreateRequest(req)
+
+	assert.Equal(t, "user-1", r.UserID)
 	assert.Equal(t, "org-1", r.OrgID)
 	assert.Equal(t, "type-1", r.ResourceTypeID)
+	assert.Equal(t, "Dr. Rakesh", r.Name)
+	assert.Equal(t, entity.MeetingModeOffline, r.MeetingMode)
+	assert.NotNil(t, r.Address)
+	assert.Equal(t, "MG Road, Bangalore", *r.Address)
 	assert.True(t, r.IsActive)
 	assert.Equal(t, "ENT", r.Attributes["department"])
-	assert.Equal(t, lat, *r.Latitude)
-	assert.Equal(t, lng, *r.Longitude)
 }
 
-func TestResourceFromCreateRequest_OptionalLocationStaysNil(t *testing.T) {
-	r := ResourceFromCreateRequest(&pb.CreateResourceRequest{TenantType: pb.TenantType_TENANT_TYPE_ORG, OrgId: "org-1", ResourceTypeId: "type-1", Name: "Backend Panel", MeetingMode: pb.MeetingMode_MEETING_MODE_ONLINE})
-	assert.Nil(t, r.Latitude)
-	assert.Nil(t, r.Longitude)
+func TestResourceFromCreateRequest_OptionalAddressStaysNil(t *testing.T) {
+	r := ResourceFromCreateRequest(&pb.CreateResourceRequest{
+		UserId:         "user-1",
+		TenantType:     pb.TenantType_TENANT_TYPE_ORG,
+		OrgId:          "org-1",
+		ResourceTypeId: "type-1",
+		Name:           "Backend Panel",
+		MeetingMode:    pb.MeetingMode_MEETING_MODE_ONLINE,
+	})
+
+	assert.Nil(t, r.Address)
+}
+
+func TestResourceFromUpdateRequest(t *testing.T) {
+	req := &pb.UpdateResourceRequest{
+		ResourceId:  "res-1",
+		Name:        "Dr. Rakesh Updated",
+		OrgId:       stringPtr("org-1"),
+		MeetingMode: pb.MeetingMode_MEETING_MODE_OFFLINE,
+		Address:     stringPtr("Indiranagar, Bangalore"),
+		Attributes:  map[string]string{"department": "ENT"},
+	}
+
+	r := ResourceFromUpdateRequest(req)
+
+	assert.Equal(t, "res-1", r.ID)
+	assert.Equal(t, "Dr. Rakesh Updated", r.Name)
+	assert.Equal(t, "org-1", r.OrgID)
+	assert.Equal(t, entity.MeetingModeOffline, r.MeetingMode)
+	assert.NotNil(t, r.Address)
+	assert.Equal(t, "Indiranagar, Bangalore", *r.Address)
+	assert.Equal(t, "ENT", r.Attributes["department"])
+}
+
+func TestResourceFromUpdateRequest_OptionalAddressStaysNil(t *testing.T) {
+	r := ResourceFromUpdateRequest(&pb.UpdateResourceRequest{
+		ResourceId:  "res-1",
+		Name:        "Dr. Rakesh",
+		OrgId:       stringPtr("org-1"),
+		MeetingMode: pb.MeetingMode_MEETING_MODE_ONLINE,
+	})
+
+	assert.Equal(t, "res-1", r.ID)
+	assert.Nil(t, r.Address)
 }
 
 func TestSearchRequestFromProto(t *testing.T) {
@@ -100,8 +153,13 @@ func TestSlotToProto(t *testing.T) {
 
 func TestResponseWrappers(t *testing.T) {
 	assert.Equal(t, "res-1", CreateResourceResponseToProto("res-1").ResourceId)
+	assert.Equal(t, "res-1", UpdateResourceResponseToProto("res-1").ResourceId)
 	assert.EqualValues(t, 5, SetRecurringAvailabilityResponseToProto(5).SlotsGenerated)
 	assert.Equal(t, "slot-1", AddSlotExceptionResponseToProto("slot-1", entity.SlotStatusOpen).SlotId)
 	assert.Equal(t, pb.SlotStatus_SLOT_STATUS_BLOCKED, RemoveSlotExceptionResponseToProto(entity.SlotStatusBlocked).Status)
 	assert.EqualValues(t, 3, SetLeavePeriodResponseToProto(3).SlotsRemoved)
+}
+
+func stringPtr(s string) *string {
+	return &s
 }

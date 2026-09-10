@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/resource/client"
+	"github.com/PriyanshuTrivedi/nexus-scheduler/code/resource/client/locationIQ"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/resource/controller"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/resource/handler"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/resource/store"
@@ -40,6 +41,10 @@ func loadConfig() (Config, error) {
 		return Config{}, fmt.Errorf("resource: load config: %w", err)
 	}
 	return cfg, nil
+}
+
+func locationIQAPIKey() string {
+	return configloader.MustGetEnv("LOCATIONIQ_API_KEY")
 }
 
 // grpcServerConfig maps this service's own Config down to the minimal shape
@@ -70,10 +75,12 @@ func registerHandler(server *grpc.Server, h *handler.Handler) {
 var Module = fx.Options(
 	fx.Provide(loadConfig),
 	fx.Provide(grpcServerConfig),
+	fx.Provide(locationIQAPIKey),
 	fx.Provide(newPostgresPool),
 	fx.Provide(newRedisClient),
 	fx.Provide(store.New),
 	fx.Provide(client.New),
+	fx.Provide(locationIQ.New),
 	fx.Provide(controller.New),
 	fx.Provide(handler.New),
 	grpcserver.Module,

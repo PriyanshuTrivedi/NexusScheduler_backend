@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,15 +23,19 @@ import (
 )
 
 type Handler struct {
-	Identity         client.IdentityClient
-	Resource         client.ResourceClient
-	Booking          client.BookingClient
-	Issuer           *middleware.TokenIssuer
-	LocationIQAPIKey string
+	Identity client.IdentityClient
+	Resource client.ResourceClient
+	Booking  client.BookingClient
+	Issuer   *middleware.TokenIssuer
 }
 
-func New(i client.IdentityClient, r client.ResourceClient, b client.BookingClient, issuer *middleware.TokenIssuer, apiKey string) *Handler {
-	return &Handler{Identity: i, Resource: r, Booking: b, Issuer: issuer, LocationIQAPIKey: apiKey}
+func New(i client.IdentityClient, r client.ResourceClient, b client.BookingClient, issuer *middleware.TokenIssuer) *Handler {
+	return &Handler{
+		Identity: i,
+		Resource: r,
+		Booking:  b,
+		Issuer:   issuer,
+	}
 }
 func decode(r *http.Request, msg proto.Message) error {
 	b, err := io.ReadAll(r.Body)
@@ -220,7 +223,7 @@ func writeForbidden(w http.ResponseWriter, message string) {
 func (h *Handler) CreateResource(w http.ResponseWriter, r *http.Request) {
 	req := new(resourcepb.CreateResourceRequest)
 	if e := decode(r, req); e != nil {
-		util.WriteJSON(w, map[string]string{"code": "INVALID_ARGUMENT", "message": e.Error()}, 400)
+		util.WriteJSON(w, map[string]string{"code": "INVALID_ARGUMENT", "message": e.Error()}, http.StatusBadRequest)
 		return
 	}
 	p, ok := middleware.PrincipalFromContext(r.Context())
@@ -244,30 +247,29 @@ func (h *Handler) CreateResource(w http.ResponseWriter, r *http.Request) {
 	call(w, resp, e)
 }
 
-func (h *Handler) UpdateResourceProfile(w http.ResponseWriter, r *http.Request) {
-	req := new(resourcepb.CreateResourceRequest)
+func (h *Handler) UpdateResource(w http.ResponseWriter, r *http.Request) {
+	req := new(resourcepb.UpdateResourceRequest)
 	if e := decode(r, req); e != nil {
-		util.WriteJSON(w, map[string]string{"code": "INVALID_ARGUMENT", "message": e.Error()}, http.StatusBadRequest)
+		util.WriteJSON(w, map[string]string{
+			"code":    "INVALID_ARGUMENT",
+			"message": e.Error(),
+		}, http.StatusBadRequest)
 		return
 	}
-
 	p, ok := middleware.PrincipalFromContext(r.Context())
 	if !ok || p.Role != identitypb.UserRole_USER_ROLE_RESOURCE {
 		writeForbidden(w, "only resource accounts can update their resource profile")
 		return
 	}
-
-	req.UserId = p.UserID
 	if p.TenantType == identitypb.TenantType_TENANT_TYPE_ORG {
 		req.TenantType = resourcepb.TenantType_TENANT_TYPE_ORG
-		req.OrgId = p.OrgID
+		orgID := p.OrgID
+		req.OrgId = &orgID
 	} else {
 		req.TenantType = resourcepb.TenantType_TENANT_TYPE_INDIVIDUAL
-		req.OrgId = ""
+		req.OrgId = nil
 	}
-
-	ctx := metadata.AppendToOutgoingContext(meta(r), "x-resource-operation", "update")
-	resp, e := h.Resource.CreateResource(ctx, req)
+	resp, e := h.Resource.UpdateResource(r.Context(), req)
 	call(w, resp, e)
 }
 
@@ -310,74 +312,6 @@ func (h *Handler) SearchResources(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, e := h.Resource.SearchResources(r.Context(), req)
 	call(w, resp, e)
-}
-func (h *Handler) Geocode(w http.ResponseWriter, r *http.Request) {
-	address := strings.TrimSpace(r.URL.Query().Get("address"))
-	if address == "" {
-		util.WriteJSON(w, map[string]string{"code": "INVALID_ARGUMENT", "message": "address is required"}, 400)
-		return
-	}
-
-	if h.LocationIQAPIKey == "" {
-		util.WriteJSON(w, map[string]string{"code": "INTERNAL", "message": "geocoding configuration missing"}, 500)
-		return
-	}
-
-	u := fmt.Sprintf("https://us1.locationiq.com/v1/search?key=%s&q=%s&format=json&", h.LocationIQAPIKey, url.QueryEscape(address))
-
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, u, nil)
-	if err != nil {
-		util.WriteJSON(w, map[string]string{"code": "INTERNAL", "message": err.Error()}, 500)
-		return
-	}
-
-	req.Header.Set("User-Agent", "NexusScheduler/1.0 (resource scheduling application)")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		util.WriteJSON(w, map[string]string{"code": "INTERNAL", "message": "geocoding service unavailable"}, 502)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		util.WriteJSON(w, map[string]string{"code": "NOT_FOUND", "message": "address could not be located"}, 404)
-		return
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		util.WriteJSON(w, map[string]string{"code": "INTERNAL", "message": "geocoding service returned an error"}, 502)
-		return
-	}
-
-	var places []struct {
-		Lat         string `json:"lat"`
-		Lon         string `json:"lon"`
-		DisplayName string `json:"display_name"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&places); err != nil {
-		util.WriteJSON(w, map[string]string{"code": "INTERNAL", "message": "invalid geocoding response"}, 502)
-		return
-	}
-
-	if len(places) == 0 {
-		util.WriteJSON(w, map[string]string{"code": "NOT_FOUND", "message": "address could not be located"}, 404)
-		return
-	}
-
-	lat, err1 := strconv.ParseFloat(places[0].Lat, 64)
-	lng, err2 := strconv.ParseFloat(places[0].Lon, 64)
-	if err1 != nil || err2 != nil {
-		util.WriteJSON(w, map[string]string{"code": "INTERNAL", "message": "invalid geocoding coordinates"}, 502)
-		return
-	}
-
-	util.WriteJSON(w, map[string]interface{}{
-		"latitude":     lat,
-		"longitude":    lng,
-		"display_name": places[0].DisplayName,
-	}, 200)
 }
 
 func (h *Handler) GetSlot(w http.ResponseWriter, r *http.Request) {

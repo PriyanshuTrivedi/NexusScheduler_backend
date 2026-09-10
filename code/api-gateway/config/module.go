@@ -62,11 +62,6 @@ func jwtSecret() string {
 	return configloader.MustGetEnv("API_GATEWAY_JWT_SECRET")
 }
 
-type LocationIQKey string
-
-func locationIQAPIKey() LocationIQKey {
-	return LocationIQKey(configloader.MustGetEnv("LOCATIONIQ_API_KEY"))
-}
 func newVerifier(c Config, secret string) *middleware.Verifier {
 	return middleware.NewVerifier(secret, c.JWT.Issuer)
 }
@@ -119,9 +114,10 @@ func newClients(lc fx.Lifecycle, c Config) (grpcClients, error) {
 	return grpcClients{identity: identitypb.NewIdentityServiceClient(iConn), resource: resourcepb.NewResourceServiceClient(rConn), booking: bookingpb.NewBookingServiceClient(bConn), conns: []*grpc.ClientConn{iConn, rConn, bConn}}, nil
 }
 
-func newHandler(c grpcClients, issuer *middleware.TokenIssuer, apiKey LocationIQKey) *handler.Handler {
-	return handler.New(c.identity, c.resource, c.booking, issuer, string(apiKey))
+func newHandler(c grpcClients, issuer *middleware.TokenIssuer) *handler.Handler {
+	return handler.New(c.identity, c.resource, c.booking, issuer)
 }
+
 func newHTTPHandler(h *handler.Handler, v *middleware.Verifier, l middleware.RateLimiter, c Config) http.Handler {
 	routerHandler := router.New(h, v, l, router.Config{
 		RateLimit:  c.RateLimit,
@@ -157,7 +153,6 @@ func start(lc fx.Lifecycle, c Config, h http.Handler) {
 var Module = fx.Options(
 	fx.Provide(loadConfig),
 	fx.Provide(jwtSecret),
-	fx.Provide(locationIQAPIKey),
 	fx.Provide(newVerifier),
 	fx.Provide(newIssuer),
 	fx.Provide(newRedis),

@@ -28,6 +28,8 @@ services:
     envVars:
       - key: ENV
         value: production
+      - key: LOCATIONIQ_API_KEY
+        sync: false
       - key: RESOURCE_POSTGRES_DSN
         sync: false
       - key: REDIS_ADDR
@@ -68,8 +70,6 @@ services:
         value: production
       - key: API_GATEWAY_JWT_SECRET
         generateValue: true   # let Render generate a real production secret
-      - key: LOCATIONIQ_API_KEY
-        sync: false
       - key: REDIS_ADDR
         fromService:
           name: nexus-redis

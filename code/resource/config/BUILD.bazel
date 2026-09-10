@@ -8,6 +8,7 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//code/resource/client",
+        "//code/resource/client/locationIQ",
         "//code/resource/controller",
         "//code/resource/handler",
         "//code/resource/store",

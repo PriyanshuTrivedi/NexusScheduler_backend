@@ -7,8 +7,10 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//code/resource/client",
+        "//code/resource/client/locationIQ",
         "//code/resource/entity",
         "//code/resource/store",
+        "//code/resource/util",
     ],
 )
 
@@ -19,6 +21,7 @@ go_test(
     deps = [
         "//code/resource/entity",
         "//gen/mocks/resource/client",
+        "//gen/mocks/resource/client/locationIQ",
         "//gen/mocks/resource/store",
         "@com_github_golang_mock//gomock",
         "@com_github_stretchr_testify//assert",

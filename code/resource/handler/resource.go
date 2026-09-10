@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/resource/controller"
@@ -60,30 +59,6 @@ func (h *Handler) SetResourceTypeStatus(ctx context.Context, req *pb.SetResource
 }
 
 func (h *Handler) CreateResource(ctx context.Context, req *pb.CreateResourceRequest) (*pb.CreateResourceResponse, error) {
-	if md, ok := metadata.FromIncomingContext(ctx); ok {
-		if values := md.Get("x-resource-operation"); len(values) > 0 && values[0] == "update" {
-			updater, ok := h.controller.(interface {
-				UpdateResource(context.Context, string, string, entity.MeetingMode, *float64, *float64, map[string]string) (string, error)
-			})
-			if !ok {
-				return nil, status.Error(codes.Internal, "resource profile update is unavailable")
-			}
-			id, err := updater.UpdateResource(
-				ctx,
-				req.GetUserId(),
-				req.GetName(),
-				meetingModeFromProto(req.GetMeetingMode()),
-				req.Lat,
-				req.Lng,
-				req.GetAttributes(),
-			)
-			if err != nil {
-				return nil, mapErr(err)
-			}
-			return util.CreateResourceResponseToProto(id), nil
-		}
-	}
-
 	r := util.ResourceFromCreateRequest(req)
 	id, err := h.controller.CreateResource(ctx, r)
 	if err != nil {
@@ -92,17 +67,13 @@ func (h *Handler) CreateResource(ctx context.Context, req *pb.CreateResourceRequ
 	return util.CreateResourceResponseToProto(id), nil
 }
 
-func meetingModeFromProto(v pb.MeetingMode) entity.MeetingMode {
-	switch v {
-	case pb.MeetingMode_MEETING_MODE_ONLINE:
-		return entity.MeetingModeOnline
-	case pb.MeetingMode_MEETING_MODE_OFFLINE:
-		return entity.MeetingModeOffline
-	case pb.MeetingMode_MEETING_MODE_HYBRID:
-		return entity.MeetingModeHybrid
-	default:
-		return entity.MeetingModeUnspecified
+func (h *Handler) UpdateResource(ctx context.Context, req *pb.UpdateResourceRequest) (*pb.UpdateResourceResponse, error) {
+	r := util.ResourceFromUpdateRequest(req)
+	id, err := h.controller.UpdateResource(ctx, r)
+	if err != nil {
+		return nil, mapErr(err)
 	}
+	return util.UpdateResourceResponseToProto(id), nil
 }
 
 func (h *Handler) SetResourceStatus(ctx context.Context, req *pb.SetResourceStatusRequest) (*pb.SetResourceStatusResponse, error) {

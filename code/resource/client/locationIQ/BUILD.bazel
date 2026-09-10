@@ -1,0 +1,19 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "locationIQ",
+    srcs = ["locationIQ.go"],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/resource/client/locationIQ",
+    visibility = ["//visibility:public"],
+    deps = ["//code/resource/entity"],
+)
+
+go_test(
+    name = "locationIQ_test",
+    srcs = ["locationIQ_test.go"],
+    embed = [":locationIQ"],
+    deps = [
+        "//code/resource/entity",
+        "@com_github_stretchr_testify//require",
+    ],
+)

@@ -32,7 +32,6 @@ func newHandlerTest(t *testing.T) (*Handler, *clientmocks.MockIdentityClient, *c
 		resource,
 		booking,
 		middleware.NewTokenIssuer("secret", "issuer", time.Hour),
-		"dummy-key",
 	)
 
 	return h, identity, resource, booking

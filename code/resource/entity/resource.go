@@ -195,47 +195,17 @@ func (r RecurrenceRule) Validate() error {
 
 type Resource struct {
 	ID             string
+	UserID         string
 	TenantType     TenantType
 	OrgID          string
-	UserID         string
 	ResourceTypeID string
 	Name           string
 	MeetingMode    MeetingMode
-	Latitude       *float64
-	Longitude      *float64
+	Address        *string
+	Coordinate     *Coordinate
 	Attributes     map[string]string
 	Recurrence     []RecurrenceRule
 	IsActive       bool
-}
-
-func (r Resource) Validate() error {
-	if r.TenantType == TenantTypeUnspecified {
-		return ErrInvalidTenantType
-	}
-	if r.TenantType == TenantTypeIndividual && r.OrgID != "" {
-		return ErrInvalidOrganizationID
-	}
-	if r.TenantType == TenantTypeOrg && r.OrgID == "" {
-		return ErrInvalidOrganizationID
-	}
-	if r.ResourceTypeID == "" {
-		return ErrInvalidResourceTypeID
-	}
-	if r.Name == "" {
-		return ErrInvalidName
-	}
-	if !r.MeetingMode.Valid() {
-		return ErrInvalidMeetingMode
-	}
-	if r.MeetingMode.RequiresLocation() && (r.Latitude == nil || r.Longitude == nil) {
-		return ErrLocationRequired
-	}
-	for _, rule := range r.Recurrence {
-		if err := rule.Validate(); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 type Slot struct {
@@ -295,4 +265,14 @@ type SlotException struct {
 	Start      time.Time
 	End        time.Time
 	Reason     string
+}
+
+type Coordinate struct {
+	Latitude  float64
+	Longitude float64
+}
+
+type LocationIQPlace struct {
+	Lat string `json:"lat"`
+	Lon string `json:"lon"`
 }

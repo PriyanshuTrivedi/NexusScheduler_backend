@@ -23,10 +23,6 @@ func dayToProto(v entity.DayOfWeek) pb.DayOfWeek {
 	return pb.DayOfWeek(v)
 }
 
-func slotStatusFromProto(v pb.SlotStatus) entity.SlotStatus {
-	return entity.SlotStatus(v)
-}
-
 func slotStatusToProto(v entity.SlotStatus) pb.SlotStatus {
 	return pb.SlotStatus(v)
 }
@@ -99,45 +95,42 @@ func tenantTypeToProto(t entity.TenantType) pb.TenantType {
 }
 
 func ResourceFromCreateRequest(req *pb.CreateResourceRequest) entity.Resource {
-	var address *string
+	r := entity.Resource{
+		UserID:     req.GetUserId(),
+		TenantType: tenantTypeFromProto(req.GetTenantType()),
+		ResourceType: entity.ResourceType{
+			ID: req.GetResourceTypeId(),
+		},
+		Name:        req.GetName(),
+		MeetingMode: meetingModeFromProto(req.GetMeetingMode()),
+		Attributes:  req.Attributes,
+		Recurrence:  RecurrenceRulesFromProto(req.GetRecurrence()),
+		IsActive:    true,
+	}
 	if req.Address != nil {
-		v := req.GetAddress()
-		address = &v
+		r.Address = ToStringPtr(req.GetAddress())
 	}
-
-	return entity.Resource{
-		UserID:         req.UserId,
-		TenantType:     tenantTypeFromProto(req.TenantType),
-		OrgID:          req.OrgId,
-		ResourceTypeID: req.ResourceTypeId,
-		Name:           req.Name,
-		MeetingMode:    meetingModeFromProto(req.MeetingMode),
-		Address:        address,
-		Attributes:     req.Attributes,
-		Recurrence:     RecurrenceRulesFromProto(req.Recurrence),
-		IsActive:       true,
+	if req.OrgId != nil {
+		r.OrgID = ToStringPtr(req.GetOrgId())
 	}
+	return r
 }
 
 func ResourceFromUpdateRequest(req *pb.UpdateResourceRequest) entity.Resource {
-	var address *string
-	if req.Address != nil {
-		v := req.GetAddress()
-		address = &v
-	}
-	orgID := ""
-	if req.OrgId != nil {
-		orgID = req.GetOrgId()
-	}
-	return entity.Resource{
-		ID:          req.ResourceId,
-		TenantType:  tenantTypeFromProto(req.TenantType),
-		OrgID:       orgID,
+	r := entity.Resource{
+		ID:          req.GetResourceId(),
+		TenantType:  tenantTypeFromProto(req.GetTenantType()),
 		Name:        req.Name,
-		MeetingMode: meetingModeFromProto(req.MeetingMode),
-		Address:     address,
+		MeetingMode: meetingModeFromProto(req.GetMeetingMode()),
 		Attributes:  req.Attributes,
 	}
+	if req.Address != nil {
+		r.Address = ToStringPtr(req.GetAddress())
+	}
+	if req.OrgId != nil {
+		r.OrgID = ToStringPtr(req.GetOrgId())
+	}
+	return r
 }
 
 func SlotExceptionFromProto(req *pb.AddSlotExceptionRequest) entity.SlotException {
@@ -160,60 +153,111 @@ func LeavePeriodFromProto(req *pb.SetLeavePeriodRequest) entity.LeavePeriod {
 
 func SearchRequestFromProto(req *pb.SearchResourcesRequest) entity.SearchResourceRequest {
 	sr := entity.SearchResourceRequest{
-		TenantType:     tenantTypeFromProto(req.TenantType),
-		OrgID:          req.OrgId,
-		Name:           req.Name,
-		ResourceTypeID: req.ResourceTypeId,
-		MeetingMode:    meetingModeFromProto(req.MeetingMode),
-		Attributes:     req.Attributes,
-		Latitude:       req.Lat,
-		Longitude:      req.Lng,
-		RadiusKM:       req.RadiusKm,
+		ResourceTypeID: req.GetResourceTypeId(),
 	}
-	if req.WindowStartUnix != 0 {
-		sr.WindowStart = time.Unix(req.WindowStartUnix, 0)
+	if req.Attributes != nil {
+		sr.Attributes = req.Attributes
 	}
-	if req.WindowEndUnix != 0 {
-		sr.WindowEnd = time.Unix(req.WindowEndUnix, 0)
+	if req.MeetingMode != nil {
+		sr.MeetingMode = meetingModeFromProto(req.GetMeetingMode()).ToPtr()
+	}
+	if req.Name != nil {
+		sr.Name = ToStringPtr(req.GetName())
+	}
+	if req.TenantType != nil {
+		tenantType := tenantTypeFromProto(req.GetTenantType())
+		sr.TenantType = &tenantType
+	}
+	if req.OrgId != nil {
+		sr.OrgID = ToStringPtr(req.GetOrgId())
+	}
+	if req.Lat != nil {
+		sr.Latitude = ToFloatPtr(req.GetLat())
+	}
+	if req.Lng != nil {
+		sr.Longitude = ToFloatPtr(req.GetLng())
+	}
+	if req.RadiusKm != nil {
+		sr.RadiusKM = ToFloatPtr(req.GetRadiusKm())
+	}
+	if req.WindowStartUnix != nil {
+		sr.WindowStart = ToTimePtr(time.Unix(*req.WindowStartUnix, 0))
+	}
+	if req.WindowEndUnix != nil {
+		sr.WindowEnd = ToTimePtr(time.Unix(*req.WindowEndUnix, 0))
 	}
 	return sr
 }
 
+func ResourceSummaryToProto(r entity.ResourceSummary) *pb.ResourceSummary {
+	item := &pb.ResourceSummary{
+		ResourceId:            r.ResourceID,
+		TenantType:            tenantTypeToProto(r.TenantType),
+		Name:                  r.Name,
+		ResourceType:          ResourceTypeToProto(r.ResourceType),
+		MeetingMode:           meetingModeToProto(r.MeetingMode),
+		IsActive:              r.IsActive,
+		NextAvailableSlotTime: SlotTimingToProto(r.NextAvailableSlotTime),
+	}
+	if r.DistanceKM != nil {
+		item.DistanceKm = ToFloatPtr(*r.DistanceKM)
+	}
+	if r.OrgID != nil {
+		item.OrgId = ToStringPtr(*r.OrgID)
+	}
+	return item
+}
+
 func SearchResponseToProto(resources []entity.ResourceSummary) *pb.SearchResourcesResponse {
-	resp := &pb.SearchResourcesResponse{}
+	resp := &pb.SearchResourcesResponse{
+		Resources: make([]*pb.ResourceSummary, 0, len(resources)),
+	}
 	for _, r := range resources {
-		slots := make([]*pb.Slot, 0, len(r.NextAvailableSlots))
-		for _, s := range r.NextAvailableSlots {
-			slots = append(slots, &pb.Slot{
-				StartUnix: s.Start.Unix(),
-				EndUnix:   s.End.Unix(),
-			})
-		}
-		attrs := make(map[string]string, len(r.Attributes))
-		for k, v := range r.Attributes {
-			if k != "__user_id" {
-				attrs[k] = v
-			}
-		}
-		item := &pb.ResourceSummary{
-			ResourceId: r.ResourceID,
-			TenantType: tenantTypeToProto(r.TenantType),
-			Name:       r.Name,
-			ResourceType: &pb.ResourceType{
-				ResourceTypeId: r.ResourceType.ID,
-				Name:           r.ResourceType.Name,
-				IsActive:       r.ResourceType.IsActive,
-			},
-			MeetingMode:        meetingModeToProto(r.MeetingMode),
-			DistanceKm:         r.DistanceKM,
-			Attributes:         attrs,
-			NextAvailableSlots: slots,
-			IsActive:           r.IsActive,
-		}
-		if r.OrgID != "" {
-			item.OrgId = &r.OrgID
-		}
-		resp.Resources = append(resp.Resources, item)
+		resp.Resources = append(resp.Resources, ResourceSummaryToProto(r))
+	}
+	return resp
+}
+
+func SlotTimingToProto(slot entity.SlotTiming) *pb.SlotTiming {
+	if slot.Start.IsZero() || slot.End.IsZero() {
+		return nil
+	}
+	return &pb.SlotTiming{
+		StartUnix: slot.Start.Unix(),
+		EndUnix:   slot.End.Unix(),
+	}
+}
+
+func SlotToProto(slot entity.Slot) *pb.GetSlotResponse {
+	return &pb.GetSlotResponse{
+		Slot: &pb.Slot{
+			SlotId:     slot.ID,
+			ResourceId: slot.ResourceID,
+			SlotTiming: SlotTimingToProto(slot.SlotTiming),
+			Status:     slotStatusToProto(slot.Status),
+		},
+	}
+}
+
+func GetResourceByIdResponseToProto(summary entity.ResourceSummary, attributes map[string]string) *pb.GetResourceByIdResponse {
+	return &pb.GetResourceByIdResponse{
+		Resource:   ResourceSummaryToProto(summary),
+		Attributes: attributes,
+	}
+}
+
+func GetSlotsByResourceIdResponseToProto(recurrence []entity.RecurrenceRule, slots []entity.Slot) *pb.GetSlotsByResourceIdResponse {
+	resp := &pb.GetSlotsByResourceIdResponse{
+		Recurrence: recurrenceToProto(recurrence),
+		Slots:      make([]*pb.Slot, 0, len(slots)),
+	}
+	for _, slot := range slots {
+		resp.Slots = append(resp.Slots, &pb.Slot{
+			SlotId:     slot.ID,
+			ResourceId: slot.ResourceID,
+			SlotTiming: SlotTimingToProto(slot.SlotTiming),
+			Status:     slotStatusToProto(slot.Status),
+		})
 	}
 	return resp
 }
@@ -229,16 +273,6 @@ func ResourceTypeToProto(rt entity.ResourceType) *pb.ResourceType {
 func CreateResourceTypeResponseToProto(rt entity.ResourceType) *pb.CreateResourceTypeResponse {
 	return &pb.CreateResourceTypeResponse{
 		ResourceType: ResourceTypeToProto(rt),
-	}
-}
-
-func SlotToProto(slot entity.Slot) *pb.GetSlotResponse {
-	return &pb.GetSlotResponse{
-		SlotId:     slot.ID,
-		ResourceId: slot.ResourceID,
-		StartUnix:  slot.Start.Unix(),
-		EndUnix:    slot.End.Unix(),
-		Status:     slotStatusToProto(slot.Status),
 	}
 }
 
@@ -283,13 +317,13 @@ func ValidateResourceCreate(r entity.Resource) error {
 	if r.TenantType == entity.TenantTypeUnspecified {
 		return entity.ErrInvalidTenantType
 	}
-	if r.TenantType == entity.TenantTypeIndividual && r.OrgID != "" {
+	if r.TenantType == entity.TenantTypeIndividual && r.OrgID != nil {
 		return entity.ErrInvalidOrganizationID
 	}
-	if r.TenantType == entity.TenantTypeOrg && r.OrgID == "" {
+	if r.TenantType == entity.TenantTypeOrg && r.OrgID == nil {
 		return entity.ErrInvalidOrganizationID
 	}
-	if r.ResourceTypeID == "" {
+	if r.ResourceType.ID == "" {
 		return entity.ErrInvalidResourceTypeID
 	}
 	if r.Name == "" {
@@ -316,10 +350,10 @@ func ValidateResourceUpdate(r entity.Resource) error {
 	if r.Name == "" {
 		return entity.ErrInvalidName
 	}
-	if r.TenantType == entity.TenantTypeIndividual && r.OrgID != "" {
+	if r.TenantType == entity.TenantTypeIndividual && r.OrgID != nil {
 		return entity.ErrInvalidOrganizationID
 	}
-	if r.TenantType == entity.TenantTypeOrg && r.OrgID == "" {
+	if r.TenantType == entity.TenantTypeOrg && r.OrgID == nil {
 		return entity.ErrInvalidOrganizationID
 	}
 	if !r.MeetingMode.Valid() {
@@ -329,4 +363,55 @@ func ValidateResourceUpdate(r entity.Resource) error {
 		return entity.ErrLocationRequired
 	}
 	return nil
+}
+
+func ValidateResourceSearchRequest(r entity.SearchResourceRequest) error {
+	// Internal resource-account lookups use __user_id instead of a public
+	// resource-type filter. Public searches still require resource_type_id.
+	if r.ResourceTypeID == "" {
+		if _, ok := r.Attributes["__user_id"]; !ok {
+			return entity.ErrInvalidResourceTypeID
+		}
+	}
+
+	if r.MeetingMode != nil && !r.MeetingMode.Valid() {
+		return entity.ErrInvalidMeetingMode
+	}
+
+	if (r.Latitude == nil) != (r.Longitude == nil) {
+		return entity.ErrUserLocationNotFound
+	}
+
+	if r.Latitude != nil || r.Longitude != nil || r.RadiusKM != nil {
+		if r.Latitude == nil || r.Longitude == nil || r.RadiusKM == nil {
+			return entity.ErrUserLocationNotFound
+		}
+		if *r.Latitude < -90 || *r.Latitude > 90 {
+			return entity.ErrUserLocationNotFound
+		}
+		if *r.Longitude < -180 || *r.Longitude > 180 {
+			return entity.ErrUserLocationNotFound
+		}
+		if *r.RadiusKM <= 0 {
+			return entity.ErrUserLocationNotFound
+		}
+	}
+	if (r.WindowStart == nil) != (r.WindowEnd == nil) {
+		return entity.ErrInvalidTimeRange
+	}
+	if r.WindowStart != nil && !r.WindowEnd.After(*r.WindowStart) {
+		return entity.ErrInvalidTimeRange
+	}
+
+	return nil
+}
+
+func ToStringPtr(s string) *string {
+	return &s
+}
+func ToFloatPtr(f float64) *float64 {
+	return &f
+}
+func ToTimePtr(t time.Time) *time.Time {
+	return &t
 }

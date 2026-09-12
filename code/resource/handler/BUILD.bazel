@@ -23,6 +23,7 @@ go_test(
     deps = [
         "//code/resource/entity",
         "//code/resource/store",
+        "//code/resource/util",
         "//gen/idl/resource",
         "//gen/mocks/resource/controller",
         "@com_github_golang_mock//gomock",

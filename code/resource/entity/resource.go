@@ -24,6 +24,10 @@ func (t TenantType) String() string {
 	}
 }
 
+func (t TenantType) ToPtr() *TenantType {
+	return &t
+}
+
 func ParseTenantType(v string) TenantType {
 	switch v {
 	case "individual":
@@ -78,6 +82,10 @@ func (m MeetingMode) RequiresLocation() bool {
 	return m == MeetingModeOffline || m == MeetingModeHybrid
 }
 
+func (m MeetingMode) ToPtr() *MeetingMode {
+	return &m
+}
+
 type DayOfWeek int
 
 const (
@@ -125,6 +133,7 @@ var (
 	ErrInvalidUserID           = errors.New("entity: user_id is required")
 	ErrInvalidResourceID       = errors.New("entity: resource_id is required")
 	ErrInvalidResourceTypeID   = errors.New("entity: resource_type_id is required")
+	ErrUserLocationNotFound    = errors.New("entity: user location lat/lng not found")
 	ErrInvalidResourceTypeName = errors.New("entity: resource type name is required")
 	ErrInvalidOrganizationID   = errors.New("entity: organization_id is required")
 	ErrInvalidTenantType       = errors.New("entity: invalid tenant type")
@@ -194,63 +203,66 @@ func (r RecurrenceRule) Validate() error {
 }
 
 type Resource struct {
-	ID             string
-	UserID         string
-	TenantType     TenantType
-	OrgID          string
-	ResourceTypeID string
-	Name           string
-	MeetingMode    MeetingMode
-	Address        *string
-	Coordinate     *Coordinate
-	Attributes     map[string]string
-	Recurrence     []RecurrenceRule
-	IsActive       bool
+	ID           string
+	UserID       string
+	TenantType   TenantType
+	OrgID        *string
+	ResourceType ResourceType
+	Name         string
+	MeetingMode  MeetingMode
+	Address      *string
+	Coordinate   *Coordinate
+	Attributes   map[string]string
+	Recurrence   []RecurrenceRule
+	IsActive     bool
 }
 
 type Slot struct {
 	ID         string
 	ResourceID string
-	Start      time.Time
-	End        time.Time
+	SlotTiming SlotTiming
 	Status     SlotStatus
+}
+
+type SlotTiming struct {
+	Start time.Time
+	End   time.Time
 }
 
 func (s Slot) Validate() error {
 	if s.ResourceID == "" {
 		return ErrInvalidResourceID
 	}
-	if !s.End.After(s.Start) {
+	if !s.SlotTiming.End.After(s.SlotTiming.Start) {
 		return ErrInvalidTimeRange
 	}
 	return nil
 }
 
 type SearchResourceRequest struct {
-	TenantType     TenantType
-	OrgID          string
-	Name           string
+	TenantType     *TenantType
+	OrgID          *string
+	Name           *string
 	ResourceTypeID string
-	MeetingMode    MeetingMode
+	MeetingMode    *MeetingMode
 	Attributes     map[string]string
-	Latitude       float64
-	Longitude      float64
-	RadiusKM       float64
-	WindowStart    time.Time
-	WindowEnd      time.Time
+	Latitude       *float64
+	Longitude      *float64
+	RadiusKM       *float64
+	WindowStart    *time.Time
+	WindowEnd      *time.Time
 }
 
 type ResourceSummary struct {
-	ResourceID         string
-	TenantType         TenantType
-	OrgID              string
-	Name               string
-	ResourceType       ResourceType
-	MeetingMode        MeetingMode
-	DistanceKM         float64
-	Attributes         map[string]string
-	IsActive           bool
-	NextAvailableSlots []Slot
+	ResourceID            string
+	TenantType            TenantType
+	OrgID                 *string
+	Name                  string
+	ResourceType          ResourceType
+	MeetingMode           MeetingMode
+	DistanceKM            *float64
+	IsActive              bool
+	NextAvailableSlotTime SlotTiming
 }
 
 type LeavePeriod struct {

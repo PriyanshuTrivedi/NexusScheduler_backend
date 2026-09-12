@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -138,10 +137,10 @@ func (h *Handler) RegisterResource(w http.ResponseWriter, r *http.Request) {
 	resourceReq.UserId = accountResp.User.UserId
 	if accountResp.User.TenantType == identitypb.TenantType_TENANT_TYPE_ORG && accountResp.User.OrgId != nil {
 		resourceReq.TenantType = resourcepb.TenantType_TENANT_TYPE_ORG
-		resourceReq.OrgId = *accountResp.User.OrgId
+		resourceReq.OrgId = accountResp.User.OrgId
 	} else {
 		resourceReq.TenantType = resourcepb.TenantType_TENANT_TYPE_INDIVIDUAL
-		resourceReq.OrgId = ""
+		resourceReq.OrgId = nil
 	}
 	resourceResp, err := h.Resource.CreateResource(r.Context(), resourceReq)
 	if err != nil {
@@ -238,10 +237,11 @@ func (h *Handler) CreateResource(w http.ResponseWriter, r *http.Request) {
 			writeForbidden(w, "organization context is required")
 			return
 		}
-		req.OrgId = p.OrgID
+		orgId := p.OrgID
+		req.OrgId = &orgId
 	} else {
 		req.TenantType = resourcepb.TenantType_TENANT_TYPE_INDIVIDUAL
-		req.OrgId = ""
+		req.OrgId = nil
 	}
 	resp, e := h.Resource.CreateResource(meta(r), req)
 	call(w, resp, e)
@@ -280,28 +280,98 @@ func (h *Handler) GetMyResource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, e := h.Resource.SearchResources(meta(r), &resourcepb.SearchResourcesRequest{
+	lookup, e := h.Resource.SearchResources(meta(r), &resourcepb.SearchResourcesRequest{
 		Attributes: map[string]string{"__user_id": p.UserID},
 	})
 	if e != nil {
-		call(w, resp, e)
+		call(w, lookup, e)
 		return
 	}
-	if len(resp.GetResources()) == 0 {
+	if len(lookup.GetResources()) == 0 {
 		util.WriteJSON(w, map[string]string{"code": "NOT_FOUND", "message": "resource profile not found"}, http.StatusNotFound)
 		return
 	}
 
-	resource := resp.GetResources()[0]
-	response := map[string]interface{}{"resource": resource}
-	if resource.GetOrgId() != "" {
+	resourceID := lookup.Resources[0].GetResourceId()
+	resource, e := h.Resource.GetResourceById(meta(r), &resourcepb.GetResourceByIdRequest{
+		ResourceId: resourceID,
+	})
+	if e != nil {
+		call(w, resource, e)
+		return
+	}
+
+	response := map[string]interface{}{"resource": resource.GetResource()}
+	if resource.GetResource() != nil && resource.GetResource().GetOrgId() != "" {
 		if orgResp, orgErr := h.Identity.GetOrganization(meta(r), &identitypb.GetOrganizationRequest{
-			OrganizationId: resource.GetOrgId(),
+			OrganizationId: resource.GetResource().GetOrgId(),
 		}); orgErr == nil && orgResp != nil && orgResp.Organization != nil {
 			response["organization"] = orgResp.Organization
 		}
 	}
+	if resource.GetAttributes() != nil {
+		response["attributes"] = resource.GetAttributes()
+	}
 	util.WriteJSON(w, response, http.StatusOK)
+}
+
+func (h *Handler) GetResourceById(w http.ResponseWriter, r *http.Request) {
+	resourceID := resourceIDPath(r.URL.Path)
+	if resourceID == "" {
+		util.WriteJSON(w, map[string]string{"code": "INVALID_ARGUMENT", "message": "resource id is required"}, http.StatusBadRequest)
+		return
+	}
+
+	resp, e := h.Resource.GetResourceById(r.Context(), &resourcepb.GetResourceByIdRequest{
+		ResourceId: resourceID,
+	})
+	call(w, resp, e)
+}
+
+func optionalUnixQuery(r *http.Request, key string) (*int64, error) {
+	value := strings.TrimSpace(r.URL.Query().Get(key))
+	if value == "" {
+		return nil, nil
+	}
+	unix, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || unix <= 0 {
+		return nil, fmt.Errorf("%s must be a positive unix timestamp", key)
+	}
+	return &unix, nil
+}
+
+func (h *Handler) GetSlotsByResourceId(w http.ResponseWriter, r *http.Request) {
+	resourceID := resourceIDPath(r.URL.Path)
+	if resourceID == "" {
+		util.WriteJSON(w, map[string]string{"code": "INVALID_ARGUMENT", "message": "resource id is required"}, http.StatusBadRequest)
+		return
+	}
+
+	startUnix, err := optionalUnixQuery(r, "start_unix")
+	if err != nil {
+		util.WriteJSON(w, map[string]string{"code": "INVALID_ARGUMENT", "message": err.Error()}, http.StatusBadRequest)
+		return
+	}
+	endUnix, err := optionalUnixQuery(r, "end_unix")
+	if err != nil {
+		util.WriteJSON(w, map[string]string{"code": "INVALID_ARGUMENT", "message": err.Error()}, http.StatusBadRequest)
+		return
+	}
+	if (startUnix == nil) != (endUnix == nil) {
+		util.WriteJSON(w, map[string]string{"code": "INVALID_ARGUMENT", "message": "start_unix and end_unix must be provided together"}, http.StatusBadRequest)
+		return
+	}
+	if startUnix != nil && *endUnix <= *startUnix {
+		util.WriteJSON(w, map[string]string{"code": "INVALID_ARGUMENT", "message": "end_unix must be after start_unix"}, http.StatusBadRequest)
+		return
+	}
+
+	resp, e := h.Resource.GetSlotsByResourceId(r.Context(), &resourcepb.GetSlotsByResourceIdRequest{
+		ResourceId: resourceID,
+		StartUnix:  startUnix,
+		EndUnix:    endUnix,
+	})
+	call(w, resp, e)
 }
 
 func (h *Handler) SearchResources(w http.ResponseWriter, r *http.Request) {
@@ -377,15 +447,15 @@ func (h *Handler) withBookingNotificationContext(r *http.Request, booking *booki
 	address := ""
 
 	if booking.GetResourceId() != "" {
-		resp, err := h.Resource.SearchResources(meta(r), &resourcepb.SearchResourcesRequest{
-			Attributes: map[string]string{"__resource_id": booking.GetResourceId()},
+		resp, err := h.Resource.GetResourceById(meta(r), &resourcepb.GetResourceByIdRequest{
+			ResourceId: booking.GetResourceId(),
 		})
-		if err == nil && resp != nil && len(resp.GetResources()) > 0 {
-			resource := resp.GetResources()[0]
+		if err == nil && resp != nil && resp.GetResource() != nil {
+			resource := resp.GetResource()
 			resourceName = resource.GetName()
 			meetingMode = strings.TrimPrefix(resource.GetMeetingMode().String(), "MEETING_MODE_")
 			meetingMode = strings.ToLower(meetingMode)
-			attrs := resource.GetAttributes()
+			attrs := resp.GetAttributes()
 			if attrs != nil {
 				address = strings.TrimSpace(attrs["address"])
 				resourceEmail = strings.TrimSpace(attrs["resource_email"])
@@ -411,21 +481,28 @@ func (h *Handler) resourceSlotExists(r *http.Request, resourceID string, startUn
 	if resourceID == "" || startUnix <= 0 || endUnix <= startUnix {
 		return false
 	}
-	resp, err := h.Resource.SearchResources(meta(r), &resourcepb.SearchResourcesRequest{
-		Attributes:      map[string]string{"__resource_id": resourceID},
-		WindowStartUnix: startUnix,
-		WindowEndUnix:   endUnix,
+
+	resp, err := h.Resource.GetSlotsByResourceId(meta(r), &resourcepb.GetSlotsByResourceIdRequest{
+		ResourceId: resourceID,
+		StartUnix:  &startUnix,
+		EndUnix:    &endUnix,
 	})
-	if err != nil || resp == nil || len(resp.GetResources()) == 0 {
+	if err != nil || resp == nil {
 		return false
 	}
-	for _, slot := range resp.Resources[0].GetNextAvailableSlots() {
-		if slot.GetStartUnix() == startUnix && slot.GetEndUnix() == endUnix {
+
+	for _, slot := range resp.GetSlots() {
+		if slot == nil || slot.GetSlotTiming() == nil {
+			continue
+		}
+		if slot.GetSlotTiming().GetStartUnix() == startUnix && slot.GetSlotTiming().GetEndUnix() == endUnix &&
+			slot.GetStatus() == resourcepb.SlotStatus_SLOT_STATUS_OPEN {
 			return true
 		}
 	}
 	return false
 }
+
 func (h *Handler) CancelBooking(w http.ResponseWriter, r *http.Request) {
 	ref := bookingReferencePath(r.URL.Path)
 	if ref == "" {
@@ -628,44 +705,26 @@ func (h *Handler) GetBooking(w http.ResponseWriter, r *http.Request) {
 }
 func (h *Handler) writeBookingList(w http.ResponseWriter, r *http.Request, resp *bookingpb.ListUserBookingsResponse, err error) {
 	if err != nil {
-		call(w, resp, err)
+		util.WriteGRPCError(w, err)
 		return
 	}
-	if resp == nil {
-		util.WriteJSON(w, map[string]interface{}{"bookings": []interface{}{}}, http.StatusOK)
+	p, ok := middleware.PrincipalFromContext(r.Context())
+	if !ok {
+		writeForbidden(w, "authentication required")
 		return
 	}
 
-	p, _ := middleware.PrincipalFromContext(r.Context())
-	// A reschedule keeps the same reference code but creates a new row. The
-	// list RPC therefore may contain the old RESCHEDULED row and the new
-	// CONFIRMED row separately. Build a tiny lineage index from the past list
-	// so the UI can render one logical event without changing the DB model.
-	rescheduledByRef := map[string]*bookingpb.GetBookingStatusResponse{}
-	if len(resp.GetBookings()) > 0 {
-		var lineage *bookingpb.ListUserBookingsResponse
-		var lineageErr error
-		if p.Role == identitypb.UserRole_USER_ROLE_CLIENT {
-			lineage, lineageErr = h.Booking.ListPastBookings(meta(r), &bookingpb.ListUserBookingsRequest{UserId: p.UserID})
-		} else if p.Role == identitypb.UserRole_USER_ROLE_RESOURCE {
-			resourceID := resp.Bookings[0].GetResourceId()
-			ctx := metadata.AppendToOutgoingContext(meta(r), "x-list-scope", "resource")
-			lineage, lineageErr = h.Booking.ListPastBookings(ctx, &bookingpb.ListUserBookingsRequest{UserId: resourceID})
+	rescheduledByRef := make(map[string]*bookingpb.GetBookingStatusResponse)
+	for _, booking := range resp.GetBookings() {
+		if booking == nil {
+			continue
 		}
-		if lineageErr == nil && lineage != nil {
-			for _, item := range lineage.GetBookings() {
-				if item == nil || item.GetStatus().String() != "BOOKING_STATUS_RESCHEDULED" {
-					continue
-				}
-				current := rescheduledByRef[item.GetReferenceCode()]
-				if current == nil || item.GetStartUnix() > current.GetStartUnix() {
-					rescheduledByRef[item.GetReferenceCode()] = item
-				}
-			}
+		if booking.GetStatus().String() == "BOOKING_STATUS_RESCHEDULED" {
+			rescheduledByRef[booking.GetReferenceCode()] = booking
 		}
 	}
 
-	views := make([]map[string]interface{}, 0, len(resp.GetBookings()))
+	views := make([]interface{}, 0, len(resp.GetBookings()))
 	seen := make(map[string]bool)
 	nowUnix := time.Now().Unix()
 	for _, booking := range resp.GetBookings() {
@@ -680,8 +739,6 @@ func (h *Handler) writeBookingList(w http.ResponseWriter, r *http.Request, resp 
 		if booking.GetStatus().String() == "BOOKING_STATUS_RESCHEDULED" {
 			latest, latestErr := h.Booking.GetBookingStatus(meta(r), &bookingpb.GetBookingStatusRequest{ReferenceCode: booking.GetReferenceCode()})
 			if latestErr == nil && latest != nil {
-				// If the new booking is still upcoming, the logical event belongs
-				// in Upcoming, not twice across both tabs.
 				if latest.GetStartUnix() >= nowUnix && booking.GetStartUnix() < nowUnix {
 					seen[booking.GetReferenceCode()] = true
 					continue
@@ -712,14 +769,14 @@ func (h *Handler) writeBookingList(w http.ResponseWriter, r *http.Request, resp 
 			view["previous_end_unix"] = previousEnd
 		}
 
-		resourceResp, resourceErr := h.Resource.SearchResources(meta(r), &resourcepb.SearchResourcesRequest{
-			Attributes: map[string]string{"__resource_id": current.GetResourceId()},
+		resourceResp, resourceErr := h.Resource.GetResourceById(meta(r), &resourcepb.GetResourceByIdRequest{
+			ResourceId: current.GetResourceId(),
 		})
-		if resourceErr == nil && resourceResp != nil && len(resourceResp.GetResources()) > 0 {
-			resource := resourceResp.GetResources()[0]
+		if resourceErr == nil && resourceResp != nil && resourceResp.GetResource() != nil {
+			resource := resourceResp.GetResource()
 			view["resource_name"] = resource.GetName()
 			view["meeting_mode"] = resource.GetMeetingMode().String()
-			if address := resource.GetAttributes()["address"]; address != "" {
+			if address := resourceResp.GetAttributes()["address"]; address != "" {
 				view["address"] = address
 			}
 			if p.Role == identitypb.UserRole_USER_ROLE_CLIENT {
@@ -826,10 +883,10 @@ func (h *Handler) SetResourceStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if lookup.Resources[0].OrgId != nil {
-		orgID := *lookup.Resources[0].OrgId
+		orgID := lookup.Resources[0].OrgId
 		activeLookup, _ := h.Resource.SearchResources(meta(r), &resourcepb.SearchResourcesRequest{OrgId: orgID})
 		if activeLookup != nil {
-			_, _ = h.Identity.SetOrganizationStatus(meta(r), &identitypb.SetOrganizationStatusRequest{OrganizationId: orgID, IsActive: len(activeLookup.Resources) > 0})
+			_, _ = h.Identity.SetOrganizationStatus(meta(r), &identitypb.SetOrganizationStatusRequest{OrganizationId: *orgID, IsActive: len(activeLookup.Resources) > 0})
 		}
 	}
 	call(w, resp, e)
@@ -840,11 +897,6 @@ func (h *Handler) DeleteResource(w http.ResponseWriter, r *http.Request) {
 	call(w, resp, e)
 }
 
-// GetResourceAvailability returns the actual booking-facing calendar for a
-// resource. Open slots come from ResourceService; current confirmed/waitlisted
-// bookings are overlaid from BookingService. This keeps the existing resource
-// slot model intact while giving the UI the four states it needs: available,
-// booked, past, and no-slot.
 func (h *Handler) GetResourceAvailability(w http.ResponseWriter, r *http.Request) {
 	resourceID := resourceIDPath(r.URL.Path)
 	if resourceID == "" {
@@ -859,42 +911,39 @@ func (h *Handler) GetResourceAvailability(w http.ResponseWriter, r *http.Request
 		endUnix = now.AddDate(0, 0, 7).Unix()
 	}
 
-	// SearchResources has a preview limit of 21 slots. Fetch one day at a time
-	// so a full calendar week cannot silently lose later slots.
+	resp, err := h.Resource.GetSlotsByResourceId(meta(r), &resourcepb.GetSlotsByResourceIdRequest{
+		ResourceId: resourceID,
+		StartUnix:  &startUnix,
+		EndUnix:    &endUnix,
+	})
+	if err != nil {
+		call(w, resp, err)
+		return
+	}
+
 	type calendarSlot struct {
 		StartUnix int64  `json:"start_unix"`
 		EndUnix   int64  `json:"end_unix"`
 		Status    string `json:"status"`
 	}
 	open := make(map[string]calendarSlot)
-	cursor := time.Unix(startUnix, 0)
-	end := time.Unix(endUnix, 0)
-	for cursor.Before(end) {
-		next := cursor.Add(24 * time.Hour)
-		if next.After(end) {
-			next = end
+	for _, slot := range resp.GetSlots() {
+		if slot == nil || slot.GetSlotTiming() == nil {
+			continue
 		}
-		resp, err := h.Resource.SearchResources(meta(r), &resourcepb.SearchResourcesRequest{
-			Attributes:      map[string]string{"__resource_id": resourceID},
-			WindowStartUnix: cursor.Unix(),
-			WindowEndUnix:   next.Unix(),
-		})
-		if err != nil {
-			call(w, resp, err)
-			return
+		start := slot.GetSlotTiming().GetStartUnix()
+		end := slot.GetSlotTiming().GetEndUnix()
+		if start <= 0 || end <= start {
+			continue
 		}
-		for _, resource := range resp.GetResources() {
-			for _, slot := range resource.GetNextAvailableSlots() {
-				key := fmt.Sprintf("%d-%d", slot.GetStartUnix(), slot.GetEndUnix())
-				open[key] = calendarSlot{StartUnix: slot.GetStartUnix(), EndUnix: slot.GetEndUnix(), Status: "available"}
-			}
+		status := "available"
+		if slot.GetStatus() != resourcepb.SlotStatus_SLOT_STATUS_OPEN {
+			continue
 		}
-		cursor = next
+		key := fmt.Sprintf("%d-%d", start, end)
+		open[key] = calendarSlot{StartUnix: start, EndUnix: end, Status: status}
 	}
 
-	// BookingService already has a resource-scoped list path. We use both
-	// current and past rows because a past booked slot still needs to be shown
-	// as Past, not Booked. Cancelled/rescheduled rows are ignored below.
 	ctx := metadata.AppendToOutgoingContext(meta(r), "x-list-scope", "resource")
 	upcoming, upErr := h.Booking.ListUpcomingBookings(ctx, &bookingpb.ListUserBookingsRequest{UserId: resourceID})
 	past, pastErr := h.Booking.ListPastBookings(ctx, &bookingpb.ListUserBookingsRequest{UserId: resourceID})
@@ -919,9 +968,6 @@ func (h *Handler) GetResourceAvailability(w http.ResponseWriter, r *http.Request
 			if booking.GetStartUnix() < startUnix || booking.GetStartUnix() >= endUnix {
 				continue
 			}
-			// A booking is considered booked only when it exactly corresponds to
-			// a generated resource slot. Invalid legacy bookings therefore cannot
-			// invent a red slot on the resource calendar.
 			key := fmt.Sprintf("%d-%d", booking.GetStartUnix(), booking.GetEndUnix())
 			if _, exists := open[key]; exists {
 				open[key] = calendarSlot{StartUnix: booking.GetStartUnix(), EndUnix: booking.GetEndUnix(), Status: "booked"}
@@ -943,26 +989,28 @@ func (h *Handler) GetMyAvailability(w http.ResponseWriter, r *http.Request) {
 		writeForbidden(w, "only resource accounts can view availability")
 		return
 	}
-	resp, err := h.Resource.SearchResources(meta(r), &resourcepb.SearchResourcesRequest{
-		Attributes: map[string]string{"__user_id": p.UserID, "__include_recurrence": "1"},
+
+	lookup, err := h.Resource.SearchResources(meta(r), &resourcepb.SearchResourcesRequest{
+		Attributes: map[string]string{"__user_id": p.UserID},
+	})
+	if err != nil {
+		call(w, lookup, err)
+		return
+	}
+	if len(lookup.GetResources()) == 0 {
+		util.WriteJSON(w, map[string]string{"code": "NOT_FOUND", "message": "resource profile not found"}, http.StatusNotFound)
+		return
+	}
+
+	resourceID := lookup.Resources[0].GetResourceId()
+	resp, err := h.Resource.GetSlotsByResourceId(meta(r), &resourcepb.GetSlotsByResourceIdRequest{
+		ResourceId: resourceID,
 	})
 	if err != nil {
 		call(w, resp, err)
 		return
 	}
-	if len(resp.GetResources()) == 0 {
-		util.WriteJSON(w, map[string]string{"code": "NOT_FOUND", "message": "resource profile not found"}, http.StatusNotFound)
-		return
-	}
-	raw := resp.Resources[0].GetAttributes()["__recurrence_json"]
-	var recurrence interface{} = []interface{}{}
-	if raw != "" {
-		if err := json.Unmarshal([]byte(raw), &recurrence); err != nil {
-			util.WriteJSON(w, map[string]string{"code": "INTERNAL", "message": "invalid stored recurrence"}, http.StatusInternalServerError)
-			return
-		}
-	}
-	util.WriteJSON(w, map[string]interface{}{"recurrence": recurrence}, http.StatusOK)
+	util.WriteJSON(w, map[string]interface{}{"recurrence": resp.GetRecurrence()}, http.StatusOK)
 }
 
 func (h *Handler) SetRecurringAvailability(w http.ResponseWriter, r *http.Request) {

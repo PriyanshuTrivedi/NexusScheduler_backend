@@ -235,17 +235,21 @@ func TestResourceSlotExists(t *testing.T) {
 	h, _, resource, _ := newHandlerTest(t)
 
 	resource.EXPECT().
-		SearchResources(gomock.Any(), gomock.Any()).
-		Return(&resourcepb.SearchResourcesResponse{
-			Resources: []*resourcepb.ResourceSummary{
+		GetSlotsByResourceId(gomock.Any(), &resourcepb.GetSlotsByResourceIdRequest{
+			ResourceId: "r1",
+			StartUnix:  ptrInt64(100),
+			EndUnix:    ptrInt64(200),
+		}).
+		Return(&resourcepb.GetSlotsByResourceIdResponse{
+			Slots: []*resourcepb.Slot{
 				{
+					SlotId:     "slot-1",
 					ResourceId: "r1",
-					NextAvailableSlots: []*resourcepb.Slot{
-						{
-							StartUnix: 100,
-							EndUnix:   200,
-						},
+					SlotTiming: &resourcepb.SlotTiming{
+						StartUnix: 100,
+						EndUnix:   200,
 					},
+					Status: resourcepb.SlotStatus_SLOT_STATUS_OPEN,
 				},
 			},
 		}, nil)
@@ -259,17 +263,21 @@ func TestResourceSlotExists_NotFound(t *testing.T) {
 	h, _, resource, _ := newHandlerTest(t)
 
 	resource.EXPECT().
-		SearchResources(gomock.Any(), gomock.Any()).
-		Return(&resourcepb.SearchResourcesResponse{
-			Resources: []*resourcepb.ResourceSummary{
+		GetSlotsByResourceId(gomock.Any(), &resourcepb.GetSlotsByResourceIdRequest{
+			ResourceId: "r1",
+			StartUnix:  ptrInt64(100),
+			EndUnix:    ptrInt64(300),
+		}).
+		Return(&resourcepb.GetSlotsByResourceIdResponse{
+			Slots: []*resourcepb.Slot{
 				{
+					SlotId:     "slot-1",
 					ResourceId: "r1",
-					NextAvailableSlots: []*resourcepb.Slot{
-						{
-							StartUnix: 100,
-							EndUnix:   200,
-						},
+					SlotTiming: &resourcepb.SlotTiming{
+						StartUnix: 100,
+						EndUnix:   200,
 					},
+					Status: resourcepb.SlotStatus_SLOT_STATUS_OPEN,
 				},
 			},
 		}, nil)
@@ -293,12 +301,20 @@ func TestResourceSlotExists_ServiceError(t *testing.T) {
 	h, _, resource, _ := newHandlerTest(t)
 
 	resource.EXPECT().
-		SearchResources(gomock.Any(), gomock.Any()).
+		GetSlotsByResourceId(gomock.Any(), &resourcepb.GetSlotsByResourceIdRequest{
+			ResourceId: "r1",
+			StartUnix:  ptrInt64(100),
+			EndUnix:    ptrInt64(200),
+		}).
 		Return(nil, assert.AnError)
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 
 	assert.False(t, h.resourceSlotExists(r, "r1", 100, 200))
+}
+
+func ptrInt64(v int64) *int64 {
+	return &v
 }
 
 func TestCanAccessBooking_Unauthenticated(t *testing.T) {

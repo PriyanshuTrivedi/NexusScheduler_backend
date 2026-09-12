@@ -20,6 +20,7 @@ go_test(
     embed = [":controller"],
     deps = [
         "//code/resource/entity",
+        "//code/resource/store",
         "//gen/mocks/resource/client",
         "//gen/mocks/resource/client/locationIQ",
         "//gen/mocks/resource/store",

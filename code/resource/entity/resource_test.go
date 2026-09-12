@@ -120,16 +120,20 @@ func TestRecurrenceRuleValidate(t *testing.T) {
 func TestSlotValidate(t *testing.T) {
 	assert.NoError(t, (Slot{
 		ResourceID: "res-1",
-		Start:      timeFromUnix(1),
-		End:        timeFromUnix(2),
+		SlotTiming: SlotTiming{
+			Start: timeFromUnix(1),
+			End:   timeFromUnix(2),
+		},
 	}).Validate())
 
 	assert.ErrorIs(t, (Slot{ResourceID: ""}).Validate(), ErrInvalidResourceID)
 
 	assert.ErrorIs(t, (Slot{
 		ResourceID: "res-1",
-		Start:      timeFromUnix(2),
-		End:        timeFromUnix(1),
+		SlotTiming: SlotTiming{
+			Start: timeFromUnix(2),
+			End:   timeFromUnix(1),
+		},
 	}).Validate(), ErrInvalidTimeRange)
 }
 

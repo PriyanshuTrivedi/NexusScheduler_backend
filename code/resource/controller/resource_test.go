@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/resource/entity"
+	"github.com/PriyanshuTrivedi/nexus-scheduler/code/resource/store"
 	clientmocks "github.com/PriyanshuTrivedi/nexus-scheduler/gen/mocks/resource/client"
 	locationIQmocks "github.com/PriyanshuTrivedi/nexus-scheduler/gen/mocks/resource/client/locationIQ"
 	storemocks "github.com/PriyanshuTrivedi/nexus-scheduler/gen/mocks/resource/store"
@@ -17,12 +18,21 @@ import (
 
 func validResource() entity.Resource {
 	return entity.Resource{
-		TenantType:     entity.TenantTypeOrg,
-		OrgID:          "org-1",
-		ResourceTypeID: "type-1",
-		Name:           "Dr. Rakesh",
-		MeetingMode:    entity.MeetingModeOnline,
+		TenantType: entity.TenantTypeOrg,
+		OrgID:      stringPtr("org-1"),
+		ResourceType: entity.ResourceType{
+			ID:       "type-1",
+			Name:     "type-1",
+			IsActive: true,
+		},
+		Name:        "Dr. Rakesh",
+		MeetingMode: entity.MeetingModeOnline,
+		IsActive:    true,
 	}
+}
+
+func stringPtr(s string) *string {
+	return &s
 }
 
 func TestCreateResourceType_ValidationAndStore(t *testing.T) {
@@ -38,12 +48,10 @@ func TestCreateResourceType_ValidationAndStore(t *testing.T) {
 	_, err := c.CreateResourceType(context.Background(), "")
 	assert.ErrorIs(t, err, entity.ErrInvalidResourceTypeName)
 
-	mockStore.EXPECT().
-		CreateResourceType(gomock.Any(), "doctor").
-		Return(entity.ResourceType{
-			ID:   "type-1",
-			Name: "doctor",
-		}, nil)
+	mockStore.EXPECT().CreateResourceType(gomock.Any(), "doctor").Return(entity.ResourceType{
+		ID:   "type-1",
+		Name: "doctor",
+	}, nil)
 
 	got, err := c.CreateResourceType(context.Background(), "doctor")
 
@@ -61,20 +69,11 @@ func TestDeleteResourceType_Validation(t *testing.T) {
 		locationIQmocks.NewMockLocationIQClient(ctrl),
 	)
 
-	assert.ErrorIs(
-		t,
-		c.DeleteResourceType(context.Background(), ""),
-		entity.ErrInvalidResourceTypeID,
-	)
+	assert.ErrorIs(t, c.DeleteResourceType(context.Background(), ""), entity.ErrInvalidResourceTypeID)
 
-	mockStore.EXPECT().
-		DeleteResourceType(gomock.Any(), "type-1").
-		Return(nil)
+	mockStore.EXPECT().DeleteResourceType(gomock.Any(), "type-1").Return(nil)
 
-	assert.NoError(
-		t,
-		c.DeleteResourceType(context.Background(), "type-1"),
-	)
+	assert.NoError(t, c.DeleteResourceType(context.Background(), "type-1"))
 }
 
 func TestCreateResource_ExpandsRecurrenceAndInvalidatesCache(t *testing.T) {
@@ -86,39 +85,23 @@ func TestCreateResource_ExpandsRecurrenceAndInvalidatesCache(t *testing.T) {
 	c := New(mockStore, mockClient, mockLocationIQ)
 
 	r := validResource()
-	r.Recurrence = []entity.RecurrenceRule{
-		{
-			Day:      entity.Monday,
-			Timezone: "Asia/Kolkata",
-			Slots: []entity.TimeSlot{
-				{
-					StartHour: 9,
-					EndHour:   17,
-				},
-			},
-		},
-	}
+	r.Recurrence = []entity.RecurrenceRule{{
+		Day:      entity.Monday,
+		Timezone: "Asia/Kolkata",
+		Slots: []entity.TimeSlot{{
+			StartHour: 9,
+			EndHour:   17,
+		}},
+	}}
 
 	mockStore.EXPECT().
-		CreateResource(
-			gomock.Any(),
-			gomock.Any(),
-			gomock.Not(gomock.Nil()),
-		).
-		DoAndReturn(
-			func(
-				_ context.Context,
-				_ entity.Resource,
-				slots []entity.Slot,
-			) (string, error) {
-				assert.NotEmpty(t, slots)
-				return "res-1", nil
-			},
-		)
+		CreateResource(gomock.Any(), gomock.Any(), gomock.Not(gomock.Nil())).
+		DoAndReturn(func(_ context.Context, _ entity.Resource, slots []entity.Slot) (string, error) {
+			assert.NotEmpty(t, slots)
+			return "res-1", nil
+		})
 
-	mockClient.EXPECT().
-		InvalidateOrgSearchCache(gomock.Any(), "org-1").
-		Return(nil)
+	mockClient.EXPECT().InvalidateOrgSearchCache(gomock.Any(), "org-1").Return(nil)
 
 	id, err := c.CreateResource(context.Background(), r)
 
@@ -139,57 +122,23 @@ func TestCreateResource_OfflineGeocodesAddress(t *testing.T) {
 	r := validResource()
 	r.MeetingMode = entity.MeetingModeOffline
 	r.Address = &address
-	r.Attributes = map[string]string{
-		"address": address,
-	}
+	r.Attributes = map[string]string{"address": address}
 
-	coordinates := []entity.Coordinate{
-		{
-			Latitude:  12.9716,
-			Longitude: 77.5946,
-		},
-	}
+	coordinates := []entity.Coordinate{{Latitude: 12.9716, Longitude: 77.5946}}
 
-	mockLocationIQ.EXPECT().
-		GetCoordinates(gomock.Any(), address).
-		Return(coordinates, nil)
+	mockLocationIQ.EXPECT().GetCoordinates(gomock.Any(), address).Return(coordinates, nil)
 
 	mockStore.EXPECT().
-		CreateResource(
-			gomock.Any(),
-			gomock.Any(),
-			gomock.Nil(),
-		).
-		DoAndReturn(
-			func(
-				_ context.Context,
-				resource entity.Resource,
-				_ []entity.Slot,
-			) (string, error) {
-				assert.NotNil(t, resource.Coordinate)
-				assert.Equal(
-					t,
-					12.9716,
-					resource.Coordinate.Latitude,
-				)
-				assert.Equal(
-					t,
-					77.5946,
-					resource.Coordinate.Longitude,
-				)
-				assert.Equal(
-					t,
-					address,
-					resource.Attributes["address"],
-				)
+		CreateResource(gomock.Any(), gomock.Any(), gomock.Nil()).
+		DoAndReturn(func(_ context.Context, resource entity.Resource, _ []entity.Slot) (string, error) {
+			assert.NotNil(t, resource.Coordinate)
+			assert.Equal(t, 12.9716, resource.Coordinate.Latitude)
+			assert.Equal(t, 77.5946, resource.Coordinate.Longitude)
+			assert.Equal(t, address, resource.Attributes["address"])
+			return "res-1", nil
+		})
 
-				return "res-1", nil
-			},
-		)
-
-	mockClient.EXPECT().
-		InvalidateOrgSearchCache(gomock.Any(), "org-1").
-		Return(nil)
+	mockClient.EXPECT().InvalidateOrgSearchCache(gomock.Any(), "org-1").Return(nil)
 
 	id, err := c.CreateResource(context.Background(), r)
 
@@ -227,15 +176,11 @@ func TestCreateResource_GeocodingError(t *testing.T) {
 	r := validResource()
 	r.MeetingMode = entity.MeetingModeOffline
 	r.Address = &address
-	r.Attributes = map[string]string{
-		"address": address,
-	}
+	r.Attributes = map[string]string{"address": address}
 
 	expectedErr := errors.New("location service unavailable")
 
-	mockLocationIQ.EXPECT().
-		GetCoordinates(gomock.Any(), address).
-		Return(nil, expectedErr)
+	mockLocationIQ.EXPECT().GetCoordinates(gomock.Any(), address).Return(nil, expectedErr)
 
 	_, err := c.CreateResource(context.Background(), r)
 
@@ -256,9 +201,7 @@ func TestCreateResource_GeocodingReturnsNoCoordinates(t *testing.T) {
 	r.MeetingMode = entity.MeetingModeOffline
 	r.Address = &address
 
-	mockLocationIQ.EXPECT().
-		GetCoordinates(gomock.Any(), address).
-		Return([]entity.Coordinate{}, nil)
+	mockLocationIQ.EXPECT().GetCoordinates(gomock.Any(), address).Return([]entity.Coordinate{}, nil)
 
 	_, err := c.CreateResource(context.Background(), r)
 
@@ -277,24 +220,14 @@ func TestUpdateResource_DelegatesToStoreAndInvalidatesCache(t *testing.T) {
 		ID:          "res-1",
 		Name:        "Dr. Rakesh Updated",
 		TenantType:  entity.TenantTypeOrg,
-		OrgID:       "org-1",
+		OrgID:       stringPtr("org-1"),
 		MeetingMode: entity.MeetingModeOnline,
 		Attributes:  map[string]string{},
 	}
 
-	mockStore.EXPECT().
-		UpdateResource(gomock.Any(), r).
-		Return("res-1", nil)
-
-	orgID := "org-1"
-
-	mockStore.EXPECT().
-		GetResourceOrgID(gomock.Any(), "res-1").
-		Return(&orgID, nil)
-
-	mockClient.EXPECT().
-		InvalidateOrgSearchCache(gomock.Any(), "org-1").
-		Return(nil)
+	mockStore.EXPECT().UpdateResource(gomock.Any(), r).Return("res-1", nil)
+	mockStore.EXPECT().GetResourceOrgID(gomock.Any(), "res-1").Return(stringPtr("org-1"), nil)
+	mockClient.EXPECT().InvalidateOrgSearchCache(gomock.Any(), "org-1").Return(nil)
 
 	id, err := c.UpdateResource(context.Background(), r)
 
@@ -316,65 +249,28 @@ func TestUpdateResource_GeocodesAddress(t *testing.T) {
 		ID:          "res-1",
 		Name:        "Dr. Rakesh",
 		TenantType:  entity.TenantTypeOrg,
-		OrgID:       "org-1",
+		OrgID:       stringPtr("org-1"),
 		MeetingMode: entity.MeetingModeOffline,
 		Address:     &address,
-		Attributes: map[string]string{
-			"address": address,
-		},
+		Attributes:  map[string]string{"address": address},
 	}
 
-	coordinates := []entity.Coordinate{
-		{
-			Latitude:  12.9716,
-			Longitude: 77.5946,
-		},
-	}
+	coordinates := []entity.Coordinate{{Latitude: 12.9716, Longitude: 77.5946}}
 
-	mockLocationIQ.EXPECT().
-		GetCoordinates(gomock.Any(), address).
-		Return(coordinates, nil)
+	mockLocationIQ.EXPECT().GetCoordinates(gomock.Any(), address).Return(coordinates, nil)
 
 	mockStore.EXPECT().
-		UpdateResource(
-			gomock.Any(),
-			gomock.Any(),
-		).
-		DoAndReturn(
-			func(
-				_ context.Context,
-				resource entity.Resource,
-			) (string, error) {
-				assert.NotNil(t, resource.Coordinate)
-				assert.Equal(
-					t,
-					12.9716,
-					resource.Coordinate.Latitude,
-				)
-				assert.Equal(
-					t,
-					77.5946,
-					resource.Coordinate.Longitude,
-				)
-				assert.Equal(
-					t,
-					address,
-					resource.Attributes["address"],
-				)
+		UpdateResource(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, resource entity.Resource) (string, error) {
+			assert.NotNil(t, resource.Coordinate)
+			assert.Equal(t, 12.9716, resource.Coordinate.Latitude)
+			assert.Equal(t, 77.5946, resource.Coordinate.Longitude)
+			assert.Equal(t, address, resource.Attributes["address"])
+			return "res-1", nil
+		})
 
-				return "res-1", nil
-			},
-		)
-
-	orgID := "org-1"
-
-	mockStore.EXPECT().
-		GetResourceOrgID(gomock.Any(), "res-1").
-		Return(&orgID, nil)
-
-	mockClient.EXPECT().
-		InvalidateOrgSearchCache(gomock.Any(), "org-1").
-		Return(nil)
+	mockStore.EXPECT().GetResourceOrgID(gomock.Any(), "res-1").Return(stringPtr("org-1"), nil)
+	mockClient.EXPECT().InvalidateOrgSearchCache(gomock.Any(), "org-1").Return(nil)
 
 	id, err := c.UpdateResource(context.Background(), r)
 
@@ -394,24 +290,14 @@ func TestUpdateResource_WithoutAddressDoesNotGeocode(t *testing.T) {
 		ID:          "res-1",
 		Name:        "Dr. Rakesh",
 		TenantType:  entity.TenantTypeOrg,
-		OrgID:       "org-1",
+		OrgID:       stringPtr("org-1"),
 		MeetingMode: entity.MeetingModeOnline,
 		Attributes:  map[string]string{},
 	}
 
-	mockStore.EXPECT().
-		UpdateResource(gomock.Any(), r).
-		Return("res-1", nil)
-
-	orgID := "org-1"
-
-	mockStore.EXPECT().
-		GetResourceOrgID(gomock.Any(), "res-1").
-		Return(&orgID, nil)
-
-	mockClient.EXPECT().
-		InvalidateOrgSearchCache(gomock.Any(), "org-1").
-		Return(nil)
+	mockStore.EXPECT().UpdateResource(gomock.Any(), r).Return("res-1", nil)
+	mockStore.EXPECT().GetResourceOrgID(gomock.Any(), "res-1").Return(stringPtr("org-1"), nil)
+	mockClient.EXPECT().InvalidateOrgSearchCache(gomock.Any(), "org-1").Return(nil)
 
 	id, err := c.UpdateResource(context.Background(), r)
 
@@ -432,7 +318,7 @@ func TestUpdateResource_OfflineWithoutAddressReturnsLocationRequired(t *testing.
 		ID:          "res-1",
 		Name:        "Dr. Rakesh",
 		TenantType:  entity.TenantTypeOrg,
-		OrgID:       "org-1",
+		OrgID:       stringPtr("org-1"),
 		MeetingMode: entity.MeetingModeOffline,
 	}
 
@@ -455,20 +341,44 @@ func TestUpdateResource_GeocodingError(t *testing.T) {
 		ID:          "res-1",
 		Name:        "Dr. Rakesh",
 		TenantType:  entity.TenantTypeOrg,
-		OrgID:       "org-1",
+		OrgID:       stringPtr("org-1"),
 		MeetingMode: entity.MeetingModeOffline,
 		Address:     &address,
 	}
 
 	expectedErr := errors.New("location service unavailable")
 
-	mockLocationIQ.EXPECT().
-		GetCoordinates(gomock.Any(), address).
-		Return(nil, expectedErr)
+	mockLocationIQ.EXPECT().GetCoordinates(gomock.Any(), address).Return(nil, expectedErr)
 
 	_, err := c.UpdateResource(context.Background(), r)
 
 	assert.ErrorIs(t, err, expectedErr)
+}
+
+func TestUpdateResource_GeocodingReturnsNoCoordinates(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := storemocks.NewMockStore(ctrl)
+	mockClient := clientmocks.NewMockClient(ctrl)
+	mockLocationIQ := locationIQmocks.NewMockLocationIQClient(ctrl)
+
+	c := New(mockStore, mockClient, mockLocationIQ)
+
+	address := "Unknown Location"
+
+	r := entity.Resource{
+		ID:          "res-1",
+		Name:        "Dr. Rakesh",
+		TenantType:  entity.TenantTypeOrg,
+		OrgID:       stringPtr("org-1"),
+		MeetingMode: entity.MeetingModeOffline,
+		Address:     &address,
+	}
+
+	mockLocationIQ.EXPECT().GetCoordinates(gomock.Any(), address).Return([]entity.Coordinate{}, nil)
+
+	_, err := c.UpdateResource(context.Background(), r)
+
+	assert.ErrorIs(t, err, entity.ErrLocationRequired)
 }
 
 func TestUpdateResource_InvalidResourceID(t *testing.T) {
@@ -540,11 +450,7 @@ func TestSetResourceStatus_InvalidResourceID(t *testing.T) {
 		locationIQmocks.NewMockLocationIQClient(ctrl),
 	)
 
-	assert.ErrorIs(
-		t,
-		c.SetResourceStatus(context.Background(), "", false),
-		entity.ErrInvalidResourceID,
-	)
+	assert.ErrorIs(t, c.SetResourceStatus(context.Background(), "", false), entity.ErrInvalidResourceID)
 }
 
 func TestSetResourceStatus_InvalidatesOrgCache(t *testing.T) {
@@ -558,20 +464,10 @@ func TestSetResourceStatus_InvalidatesOrgCache(t *testing.T) {
 		locationIQmocks.NewMockLocationIQClient(ctrl),
 	)
 
-	orgID := "org-1"
+	mockStore.EXPECT().SetResourceStatus(gomock.Any(), "res-1", false).Return(stringPtr("org-1"), nil)
+	mockClient.EXPECT().InvalidateOrgSearchCache(gomock.Any(), "org-1").Return(nil)
 
-	mockStore.EXPECT().
-		SetResourceStatus(gomock.Any(), "res-1", false).
-		Return(&orgID, nil)
-
-	mockClient.EXPECT().
-		InvalidateOrgSearchCache(gomock.Any(), "org-1").
-		Return(nil)
-
-	assert.NoError(
-		t,
-		c.SetResourceStatus(context.Background(), "res-1", false),
-	)
+	assert.NoError(t, c.SetResourceStatus(context.Background(), "res-1", false))
 }
 
 func TestDeleteResource_OnlyDelegatesAndInvalidates(t *testing.T) {
@@ -585,20 +481,10 @@ func TestDeleteResource_OnlyDelegatesAndInvalidates(t *testing.T) {
 		locationIQmocks.NewMockLocationIQClient(ctrl),
 	)
 
-	orgID := "org-1"
+	mockStore.EXPECT().DeleteResource(gomock.Any(), "res-1").Return(stringPtr("org-1"), nil)
+	mockClient.EXPECT().InvalidateOrgSearchCache(gomock.Any(), "org-1").Return(nil)
 
-	mockStore.EXPECT().
-		DeleteResource(gomock.Any(), "res-1").
-		Return(&orgID, nil)
-
-	mockClient.EXPECT().
-		InvalidateOrgSearchCache(gomock.Any(), "org-1").
-		Return(nil)
-
-	assert.NoError(
-		t,
-		c.DeleteResource(context.Background(), "res-1"),
-	)
+	assert.NoError(t, c.DeleteResource(context.Background(), "res-1"))
 }
 
 func TestDeleteResource_Validation(t *testing.T) {
@@ -610,11 +496,7 @@ func TestDeleteResource_Validation(t *testing.T) {
 		locationIQmocks.NewMockLocationIQClient(ctrl),
 	)
 
-	assert.ErrorIs(
-		t,
-		c.DeleteResource(context.Background(), ""),
-		entity.ErrInvalidResourceID,
-	)
+	assert.ErrorIs(t, c.DeleteResource(context.Background(), ""), entity.ErrInvalidResourceID)
 }
 
 func TestExpandRecurrence_NeverProducesPastSlots(t *testing.T) {
@@ -626,38 +508,26 @@ func TestExpandRecurrence_NeverProducesPastSlots(t *testing.T) {
 		locationIQmocks.NewMockLocationIQClient(ctrl),
 	).(*resourceController)
 
-	loc, _ := time.LoadLocation("Asia/Kolkata")
+	loc, err := time.LoadLocation("Asia/Kolkata")
+	assert.NoError(t, err)
 
-	from := time.Date(
-		2026,
-		9,
-		7,
-		0,
-		0,
-		0,
-		0,
-		loc,
-	)
+	from := time.Date(2026, 9, 7, 0, 0, 0, 0, loc)
 
-	rules := []entity.RecurrenceRule{
-		{
-			Day:      entity.Monday,
-			Timezone: "Asia/Kolkata",
-			Slots: []entity.TimeSlot{
-				{
-					StartHour: 0,
-					EndHour:   1,
-				},
-			},
-		},
-	}
+	rules := []entity.RecurrenceRule{{
+		Day:      entity.Monday,
+		Timezone: "Asia/Kolkata",
+		Slots: []entity.TimeSlot{{
+			StartHour: 0,
+			EndHour:   1,
+		}},
+	}}
 
 	slots, err := c.expandRecurrence(rules, from)
 
 	assert.NoError(t, err)
 
-	for _, s := range slots {
-		assert.False(t, s.End.Before(time.Now()))
+	for _, slot := range slots {
+		assert.False(t, slot.SlotTiming.End.Before(time.Now()))
 	}
 }
 
@@ -670,18 +540,14 @@ func TestExpandRecurrence_BadTimezoneErrors(t *testing.T) {
 		locationIQmocks.NewMockLocationIQClient(ctrl),
 	).(*resourceController)
 
-	rules := []entity.RecurrenceRule{
-		{
-			Day:      entity.Monday,
-			Timezone: "Not/AZone",
-			Slots: []entity.TimeSlot{
-				{
-					StartHour: 9,
-					EndHour:   17,
-				},
-			},
-		},
-	}
+	rules := []entity.RecurrenceRule{{
+		Day:      entity.Monday,
+		Timezone: "Not/AZone",
+		Slots: []entity.TimeSlot{{
+			StartHour: 9,
+			EndHour:   17,
+		}},
+	}}
 
 	_, err := c.expandRecurrence(rules, time.Now())
 
@@ -695,21 +561,21 @@ func TestAddSlotException_Validation(t *testing.T) {
 		err  error
 	}{
 		{
-			"missing resource_id",
-			entity.SlotException{
+			name: "missing resource_id",
+			se: entity.SlotException{
 				Start: time.Unix(1, 0),
 				End:   time.Unix(2, 0),
 			},
-			entity.ErrInvalidResourceID,
+			err: entity.ErrInvalidResourceID,
 		},
 		{
-			"end before start",
-			entity.SlotException{
+			name: "end before start",
+			se: entity.SlotException{
 				ResourceID: "res-1",
 				Start:      time.Unix(2, 0),
 				End:        time.Unix(1, 0),
 			},
-			entity.ErrInvalidTimeRange,
+			err: entity.ErrInvalidTimeRange,
 		},
 	}
 
@@ -739,14 +605,11 @@ func TestSetLeavePeriod_Validation(t *testing.T) {
 		locationIQmocks.NewMockLocationIQClient(ctrl),
 	)
 
-	_, err := c.SetLeavePeriod(
-		context.Background(),
-		entity.LeavePeriod{
-			ResourceID: "res-1",
-			Start:      time.Unix(2, 0),
-			End:        time.Unix(1, 0),
-		},
-	)
+	_, err := c.SetLeavePeriod(context.Background(), entity.LeavePeriod{
+		ResourceID: "res-1",
+		Start:      time.Unix(2, 0),
+		End:        time.Unix(1, 0),
+	})
 
 	assert.ErrorIs(t, err, entity.ErrInvalidTimeRange)
 }
@@ -762,19 +625,10 @@ func TestRemoveSlotException_CacheInvalidationIsBestEffort(t *testing.T) {
 		locationIQmocks.NewMockLocationIQClient(ctrl),
 	)
 
-	mockStore.EXPECT().
-		BlockSlot(gomock.Any(), "slot-1", "unavailable").
-		Return(entity.SlotStatusBlocked, nil)
+	mockStore.EXPECT().BlockSlot(gomock.Any(), "slot-1", "unavailable").Return(entity.SlotStatusBlocked, nil)
+	mockStore.EXPECT().GetSlot(gomock.Any(), "slot-1").Return(entity.Slot{}, errors.New("boom"))
 
-	mockStore.EXPECT().
-		GetSlot(gomock.Any(), "slot-1").
-		Return(entity.Slot{}, errors.New("boom"))
-
-	status, err := c.RemoveSlotException(
-		context.Background(),
-		"slot-1",
-		"unavailable",
-	)
+	status, err := c.RemoveSlotException(context.Background(), "slot-1", "unavailable")
 
 	assert.NoError(t, err)
 	assert.Equal(t, entity.SlotStatusBlocked, status)
@@ -790,9 +644,7 @@ func TestGetSlot_PassesThroughToStore(t *testing.T) {
 		locationIQmocks.NewMockLocationIQClient(ctrl),
 	)
 
-	mockStore.EXPECT().
-		GetSlot(gomock.Any(), "slot-1").
-		Return(entity.Slot{ID: "slot-1"}, nil)
+	mockStore.EXPECT().GetSlot(gomock.Any(), "slot-1").Return(entity.Slot{ID: "slot-1"}, nil)
 
 	got, err := c.GetSlot(context.Background(), "slot-1")
 
@@ -813,24 +665,218 @@ func TestSetResourceTypeStatus_InvalidatesGlobalCache(t *testing.T) {
 
 	mockStore.EXPECT().
 		SetResourceTypeStatus(gomock.Any(), "type-1", false).
-		Return(
-			entity.ResourceType{
-				ID:       "type-1",
-				Name:     "doctor",
-				IsActive: false,
-			},
-			nil,
-		)
+		Return(entity.ResourceType{
+			ID:       "type-1",
+			Name:     "doctor",
+			IsActive: false,
+		}, nil)
 
-	mockClient.EXPECT().
-		InvalidateGlobalSearchCache(gomock.Any()).
-		Return(nil)
+	mockClient.EXPECT().InvalidateGlobalSearchCache(gomock.Any()).Return(nil)
 
-	_, err := c.SetResourceTypeStatus(
+	_, err := c.SetResourceTypeStatus(context.Background(), "type-1", false)
+
+	assert.NoError(t, err)
+}
+
+func TestGetResourceById_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := storemocks.NewMockStore(ctrl)
+
+	c := New(
+		mockStore,
+		clientmocks.NewMockClient(ctrl),
+		locationIQmocks.NewMockLocationIQClient(ctrl),
+	)
+
+	resource := validResource()
+	resource.ID = "res-1"
+	resource.Attributes = map[string]string{
+		"address":    "MG Road, Bangalore",
+		"department": "ENT",
+	}
+
+	mockStore.EXPECT().
+		GetResourceById(gomock.Any(), "res-1").
+		Return(resource, nil)
+
+	summary, attributes, err := c.GetResourceById(
 		context.Background(),
-		"type-1",
-		false,
+		"res-1",
 	)
 
 	assert.NoError(t, err)
+	assert.Equal(t, "res-1", summary.ResourceID)
+	assert.Equal(t, entity.TenantTypeOrg, summary.TenantType)
+	assert.Equal(t, "org-1", *summary.OrgID)
+	assert.Equal(t, "Dr. Rakesh", summary.Name)
+	assert.Equal(t, entity.MeetingModeOnline, summary.MeetingMode)
+	assert.True(t, summary.IsActive)
+	assert.Equal(t, resource.Attributes, attributes)
+}
+
+func TestGetResourceById_InvalidResourceID(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	c := New(
+		storemocks.NewMockStore(ctrl),
+		clientmocks.NewMockClient(ctrl),
+		locationIQmocks.NewMockLocationIQClient(ctrl),
+	)
+
+	_, _, err := c.GetResourceById(context.Background(), "")
+
+	assert.ErrorIs(t, err, entity.ErrInvalidResourceID)
+}
+
+func TestGetResourceById_StoreError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := storemocks.NewMockStore(ctrl)
+
+	c := New(
+		mockStore,
+		clientmocks.NewMockClient(ctrl),
+		locationIQmocks.NewMockLocationIQClient(ctrl),
+	)
+
+	mockStore.EXPECT().
+		GetResourceById(gomock.Any(), "res-1").
+		Return(entity.Resource{}, store.ErrResourceNotFound)
+
+	_, _, err := c.GetResourceById(context.Background(), "res-1")
+
+	assert.ErrorIs(t, err, store.ErrResourceNotFound)
+}
+
+func TestGetSlotsByResourceId_SuccessWithWindow(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := storemocks.NewMockStore(ctrl)
+
+	c := New(
+		mockStore,
+		clientmocks.NewMockClient(ctrl),
+		locationIQmocks.NewMockLocationIQClient(ctrl),
+	)
+
+	startUnix := int64(1000)
+	endUnix := int64(2000)
+	start := time.Unix(startUnix, 0)
+	end := time.Unix(endUnix, 0)
+
+	expectedSlots := []entity.Slot{{
+		ID:         "slot-1",
+		ResourceID: "res-1",
+		SlotTiming: entity.SlotTiming{
+			Start: time.Unix(1200, 0),
+			End:   time.Unix(1300, 0),
+		},
+		Status: entity.SlotStatusOpen,
+	}}
+
+	expectedRecurrence := []entity.RecurrenceRule{{
+		Day:      entity.Monday,
+		Timezone: "Asia/Kolkata",
+		Slots: []entity.TimeSlot{{
+			StartHour:   10,
+			StartMinute: 0,
+			EndHour:     11,
+			EndMinute:   0,
+		}},
+	}}
+
+	mockStore.EXPECT().
+		GetSlotsByResourceId(gomock.Any(), "res-1", start, end).
+		Return(expectedSlots, nil)
+
+	mockStore.EXPECT().
+		GetRecurrence(gomock.Any(), "res-1").
+		Return(expectedRecurrence, nil)
+
+	gotRecurrence, gotSlots, err := c.GetSlotsByResourceId(
+		context.Background(),
+		"res-1",
+		&startUnix,
+		&endUnix,
+	)
+
+	assert.NoError(t, err)
+	assert.Equal(t, expectedSlots, gotSlots)
+	assert.Equal(t, expectedRecurrence, gotRecurrence)
+}
+
+func TestGetSlotsByResourceId_SuccessWithoutWindow(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := storemocks.NewMockStore(ctrl)
+
+	c := New(
+		mockStore,
+		clientmocks.NewMockClient(ctrl),
+		locationIQmocks.NewMockLocationIQClient(ctrl),
+	)
+
+	expectedRecurrence := []entity.RecurrenceRule{{
+		Day:      entity.Monday,
+		Timezone: "Asia/Kolkata",
+	}}
+
+	mockStore.EXPECT().
+		GetSlotsByResourceId(gomock.Any(), "res-1", time.Time{}, time.Time{}).
+		Return([]entity.Slot{}, nil)
+
+	mockStore.EXPECT().
+		GetRecurrence(gomock.Any(), "res-1").
+		Return(expectedRecurrence, nil)
+
+	gotRecurrence, gotSlots, err := c.GetSlotsByResourceId(
+		context.Background(),
+		"res-1",
+		nil,
+		nil,
+	)
+
+	assert.NoError(t, err)
+	assert.Empty(t, gotSlots)
+	assert.Equal(t, expectedRecurrence, gotRecurrence)
+}
+
+func TestGetSlotsByResourceId_StoreError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := storemocks.NewMockStore(ctrl)
+
+	c := New(
+		mockStore,
+		clientmocks.NewMockClient(ctrl),
+		locationIQmocks.NewMockLocationIQClient(ctrl),
+	)
+
+	startUnix := int64(1000)
+	endUnix := int64(2000)
+
+	expectedRecurrence := []entity.RecurrenceRule{
+		{
+			Day:      entity.Monday,
+			Timezone: "Asia/Kolkata",
+		},
+	}
+
+	mockStore.EXPECT().
+		GetRecurrence(gomock.Any(), "res-1").
+		Return(expectedRecurrence, nil)
+
+	mockStore.EXPECT().
+		GetSlotsByResourceId(
+			gomock.Any(),
+			"res-1",
+			time.Unix(1000, 0),
+			time.Unix(2000, 0),
+		).
+		Return(nil, store.ErrResourceNotFound)
+
+	_, _, err := c.GetSlotsByResourceId(
+		context.Background(),
+		"res-1",
+		&startUnix,
+		&endUnix,
+	)
+
+	assert.ErrorIs(t, err, store.ErrResourceNotFound)
 }

@@ -24,4 +24,6 @@ type ResourceClient interface {
 	SetLeavePeriod(context.Context, *pb.SetLeavePeriodRequest, ...grpc.CallOption) (*pb.SetLeavePeriodResponse, error)
 	SearchResources(context.Context, *pb.SearchResourcesRequest, ...grpc.CallOption) (*pb.SearchResourcesResponse, error)
 	GetSlot(context.Context, *pb.GetSlotRequest, ...grpc.CallOption) (*pb.GetSlotResponse, error)
+	GetResourceById(context.Context, *pb.GetResourceByIdRequest, ...grpc.CallOption) (*pb.GetResourceByIdResponse, error)
+	GetSlotsByResourceId(context.Context, *pb.GetSlotsByResourceIdRequest, ...grpc.CallOption) (*pb.GetSlotsByResourceIdResponse, error)
 }

@@ -56,6 +56,8 @@ func New(h *handler.Handler, auth *middleware.Verifier, limiter middleware.RateL
 	mux.Handle("DELETE /api/v1/slots/{slot_id}/exception", resource(http.HandlerFunc(h.RemoveSlotException)))
 	mux.Handle("POST /api/v1/resources/{resource_id}/leave", resource(http.HandlerFunc(h.SetLeavePeriod)))
 	mux.Handle("PATCH /api/v1/resources/{resource_id}/status", resource(http.HandlerFunc(h.SetResourceStatus)))
+	mux.Handle("GET /api/v1/resources/{resource_id}", public(http.HandlerFunc(h.GetResourceById)))
+	mux.Handle("GET /api/v1/resources/{resource_id}/slots", public(http.HandlerFunc(h.GetSlotsByResourceId)))
 
 	mux.Handle("POST /api/v1/bookings", authn(http.HandlerFunc(h.CreateBooking)))
 	mux.Handle("POST /api/v1/bookings/{reference}/cancel", authn(http.HandlerFunc(h.CancelBooking)))

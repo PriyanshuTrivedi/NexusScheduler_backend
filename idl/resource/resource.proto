@@ -56,7 +56,7 @@ message SetResourceTypeStatusResponse { ResourceType resource_type = 1; }
 message CreateResourceRequest {
   string                  user_id          = 1;
   TenantType              tenant_type      = 2;
-  string                  org_id           = 3;
+  optional string         org_id           = 3;
   string                  resource_type_id = 4;
   string                  name             = 5;
   MeetingMode             meeting_mode     = 6;
@@ -129,49 +129,70 @@ message SetLeavePeriodRequest {
 message SetLeavePeriodResponse { int32 slots_removed = 1; }
 
 message SearchResourcesRequest {
-  TenantType          tenant_type       = 1;
-  string              org_id            = 2;
-  string              name              = 3;
-  string              resource_type_id  = 4;
-  MeetingMode         meeting_mode      = 5;
-  map<string, string> attributes        = 6;
-  double              lat               = 7;
-  double              lng               = 8;
-  double              radius_km         = 9;
-  int64               window_start_unix = 10;
-  int64               window_end_unix   = 11;
+  optional TenantType  tenant_type       = 1;
+  optional string      org_id            = 2;
+  optional string      name              = 3;
+  string               resource_type_id  = 4;
+  optional MeetingMode meeting_mode      = 5;
+  map<string, string>  attributes        = 6;
+  optional double      lat               = 7;
+  optional double      lng               = 8;
+  optional double      radius_km         = 9;
+  optional int64       window_start_unix = 10;
+  optional int64       window_end_unix   = 11;
 }
 
-message SearchResourcesResponse { repeated ResourceSummary resources = 1; }
+message SearchResourcesResponse {repeated ResourceSummary resources   = 1;}
 
 message ResourceSummary {
-  string              resource_id          = 1;
-  string              name                 = 2;
-  ResourceType        resource_type        = 3;
-  MeetingMode         meeting_mode         = 4;
-  double              distance_km          = 5;
-  map<string, string> attributes           = 6;
-  repeated Slot       next_available_slots = 7;
-  bool                is_active            = 8;
-  TenantType          tenant_type          = 9;
-  optional string     org_id               = 10;
+  string          resource_id              = 1;
+  string          name                     = 2;
+  ResourceType    resource_type            = 3;
+  MeetingMode     meeting_mode             = 4;
+  optional double distance_km              = 5;
+  SlotTiming      next_available_slot_time = 6;
+  TenantType      tenant_type              = 7;
+  optional string org_id                   = 8;
+  bool            is_active                = 9;
 }
 
-message Slot { int64 start_unix = 1; int64 end_unix = 2; }
+message SlotTiming {
+  int64 start_unix = 1;
+  int64 end_unix   = 2;
+}
+
+message Slot {
+  string     slot_id     = 1;
+  string     resource_id = 2;
+  SlotTiming slot_timing = 3;
+  SlotStatus status      = 4;
+}
 
 message GetSlotRequest { string slot_id = 1; }
 
-message GetSlotResponse {
-  string     slot_id     = 1;
-  string     resource_id = 2;
-  int64      start_unix  = 3;
-  int64      end_unix    = 4;
-  SlotStatus status      = 5;
-}
+message GetSlotResponse {Slot slot=1;}
 
 message ListResourceTypesRequest {}
 
 message ListResourceTypesResponse { repeated ResourceType resource_types = 1; }
+
+message GetResourceByIdRequest { string resource_id =1;}
+
+message GetResourceByIdResponse {
+  ResourceSummary     resource   = 1;
+  map<string, string> attributes = 2;
+}
+
+message GetSlotsByResourceIdRequest {
+  string         resource_id = 1;
+  optional int64 start_unix  = 2;
+  optional int64 end_unix    = 3;
+}
+
+message GetSlotsByResourceIdResponse {
+  repeated RecurrenceRule recurrence = 1;
+  repeated Slot           slots      = 2;
+}
 
 service ResourceService {
   rpc ListResourceTypes(ListResourceTypesRequest) returns (ListResourceTypesResponse);
@@ -187,5 +208,7 @@ service ResourceService {
   rpc RemoveSlotException(RemoveSlotExceptionRequest) returns (RemoveSlotExceptionResponse);
   rpc SetLeavePeriod(SetLeavePeriodRequest) returns (SetLeavePeriodResponse);
   rpc SearchResources(SearchResourcesRequest) returns (SearchResourcesResponse);
+  rpc GetResourceById(GetResourceByIdRequest) returns (GetResourceByIdResponse);
   rpc GetSlot(GetSlotRequest) returns (GetSlotResponse);
+  rpc GetSlotsByResourceId(GetSlotsByResourceIdRequest) returns (GetSlotsByResourceIdResponse);
 }

@@ -46,6 +46,9 @@ type Store interface {
 	SearchResources(ctx context.Context, req entity.SearchResourceRequest) ([]entity.ResourceSummary, error)
 	GetSlot(ctx context.Context, slotID string) (entity.Slot, error)
 	GetResourceOrgID(ctx context.Context, resourceID string) (*string, error)
+	GetResourceById(ctx context.Context, resourceID string) (entity.Resource, error)
+	GetRecurrence(ctx context.Context, resourceID string) ([]entity.RecurrenceRule, error)
+	GetSlotsByResourceId(ctx context.Context, resourceID string, start time.Time, end time.Time) ([]entity.Slot, error)
 }
 
 type pgStore struct {
@@ -192,7 +195,7 @@ func (s *pgStore) CreateResource(ctx context.Context, r entity.Resource, slots [
 		SELECT id FROM %s
 		WHERE id = $1 AND is_active = TRUE
 		FOR SHARE
-	`, tableResourceType), r.ResourceTypeID).Scan(&typeID); err != nil {
+	`, tableResourceType), r.ResourceType.ID).Scan(&typeID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", ErrResourceTypeNotFound
 		}
@@ -236,7 +239,7 @@ func (s *pgStore) CreateResource(ctx context.Context, r entity.Resource, slots [
 		r.TenantType.String(),
 		r.OrgID,
 		r.UserID,
-		r.ResourceTypeID,
+		r.ResourceType.ID,
 		r.Name,
 		int32(r.MeetingMode),
 		lng,
@@ -397,7 +400,7 @@ func (s *pgStore) AddSlotException(ctx context.Context, se entity.SlotException)
 		VALUES ($1, $2, $3, 1, 'exception', $4)
 		RETURNING id, resource_id, start_time, end_time, status
 	`, tableSlot), se.ResourceID, se.Start, se.End, se.Reason,
-	).Scan(&slot.ID, &slot.ResourceID, &slot.Start, &slot.End, &slot.Status)
+	).Scan(&slot.ID, &slot.ResourceID, &slot.SlotTiming.Start, &slot.SlotTiming.End, &slot.Status)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return entity.Slot{}, ErrSlotAlreadyExists
@@ -432,112 +435,261 @@ func (s *pgStore) SetLeavePeriod(ctx context.Context, lp entity.LeavePeriod) (in
 	return int(tag.RowsAffected()), nil
 }
 
-func (s *pgStore) SearchResources(ctx context.Context, req entity.SearchResourceRequest) ([]entity.ResourceSummary, error) {
-	userID := ""
-	resourceID := ""
-	attrs := make(map[string]string, len(req.Attributes))
-	for k, v := range req.Attributes {
-		if k == "__user_id" {
-			userID = v
-			continue
-		}
-		if k == "__resource_id" {
-			resourceID = v
-			continue
-		}
-		if k == "__include_recurrence" {
-			continue
-		}
-		attrs[k] = v
+func (s *pgStore) SearchResources(
+	ctx context.Context,
+	req entity.SearchResourceRequest,
+) ([]entity.ResourceSummary, error) {
+	attributeFilters := req.Attributes
+	if attributeFilters == nil {
+		attributeFilters = make(map[string]string)
 	}
-	attrJSON, err := json.Marshal(attrs)
+
+	// Internal filter used by GetMyResource.
+	userID := ""
+	if value, ok := attributeFilters["__user_id"]; ok {
+		userID = value
+
+		attributeFilters = make(map[string]string, len(attributeFilters)-1)
+		for key, value := range req.Attributes {
+			if key != "__user_id" {
+				attributeFilters[key] = value
+			}
+		}
+	}
+
+	attrJSON, err := json.Marshal(attributeFilters)
 	if err != nil {
 		return nil, fmt.Errorf("store: marshal attribute filter: %w", err)
 	}
 
+	var tenantType string
+	if req.TenantType != nil {
+		tenantType = req.TenantType.String()
+	}
+
+	var orgID string
+	if req.OrgID != nil {
+		orgID = *req.OrgID
+	}
+
+	var name string
+	if req.Name != nil {
+		name = *req.Name
+	}
+
+	var meetingMode int32
+	if req.MeetingMode != nil {
+		meetingMode = int32(*req.MeetingMode)
+	}
+
+	lat := req.Latitude
+	lng := req.Longitude
+	radiusKM := req.RadiusKM
+
 	rows, err := s.pool.Query(ctx, fmt.Sprintf(`
-		SELECT r.id, r.name, rt.id, rt.name, rt.is_active, r.meeting_mode, r.attributes,
-			r.tenant_type, COALESCE(r.org_id::text, ''),
-			CASE WHEN $9::double precision > 0 AND r.location IS NOT NULL
-			     THEN ST_Distance(r.location, ST_SetSRID(ST_MakePoint($8, $7), 4326)::geography) / 1000.0
-			     ELSE 0 END AS distance_km
+		SELECT
+			r.id,
+			r.name,
+			rt.id,
+			rt.name,
+			rt.is_active,
+			r.meeting_mode,
+			r.tenant_type,
+			r.org_id,
+			CASE
+				WHEN $9::double precision IS NOT NULL
+					AND r.location IS NOT NULL
+				THEN ST_Distance(
+					r.location,
+					ST_SetSRID(
+						ST_MakePoint($8, $7),
+						4326
+					)::geography
+				) / 1000.0
+				ELSE NULL
+			END AS distance_km
 		FROM %s r
-		JOIN %s rt ON rt.id = r.resource_type_id
-		WHERE ($1::smallint = 0 OR r.tenant_type = CASE $1::smallint WHEN 1 THEN 'individual' WHEN 2 THEN 'org' END)
-		  AND ($2 = '' OR r.org_id = NULLIF($2, '')::uuid)
-		  AND r.is_active = TRUE AND rt.is_active = TRUE
-		  AND ($3 = '' OR r.name ILIKE '%%' || $3 || '%%')
-		  AND ($4 = '' OR r.resource_type_id::text = $4)
-		  AND ($5::smallint = 0 OR r.meeting_mode = $5)
-		  AND ($6::jsonb = '{}'::jsonb OR r.attributes @> $6::jsonb)
-		  AND ($9::double precision <= 0 OR (
-		        r.location IS NOT NULL AND ST_DWithin(
-		          r.location, ST_SetSRID(ST_MakePoint($8, $7), 4326)::geography, $9 * 1000
-		        )
-		  ))
-		  AND ($10 = '' OR r.user_id::text = $10)
-		  AND ($11 = '' OR r.id::text = $11)
-		ORDER BY r.name LIMIT 50
+		JOIN %s rt
+			ON rt.id = r.resource_type_id
+		WHERE
+			-- Tenant type: nil => all tenant types
+			($1 = '' OR r.tenant_type = $1)
+
+			-- Organization: nil => all organizations
+			AND ($2 = '' OR r.org_id = NULLIF($2, '')::uuid)
+
+			-- Only active resources/resource types
+			AND r.is_active = TRUE
+			AND rt.is_active = TRUE
+
+			-- Name: nil => all names
+			AND ($3 = '' OR r.name ILIKE '%%' || $3 || '%%')
+
+			-- Resource type: empty => all resource types
+			AND ($4 = '' OR r.resource_type_id::text = $4)
+
+			-- Meeting mode: 0 => all meeting modes
+			AND ($5 = 0 OR r.meeting_mode = $5)
+
+			-- Attributes: empty map => no attribute filter
+			AND (
+				$6::jsonb = '{}'::jsonb
+				OR r.attributes @> $6::jsonb
+			)
+
+			-- Internal user filter: empty => all users
+			AND (
+				$10 = ''
+				OR r.user_id = NULLIF($10, '')::uuid
+			)
+
+			-- Radius: nil => no location filtering
+			AND (
+				$9::double precision IS NULL
+				OR (
+					r.location IS NOT NULL
+					AND ST_DWithin(
+						r.location,
+						ST_SetSRID(
+							ST_MakePoint($8, $7),
+							4326
+						)::geography,
+						$9 * 1000
+					)
+				)
+			)
+
+		ORDER BY r.name
+		LIMIT 50
 	`, tableResource, tableResourceType),
-		int32(req.TenantType), req.OrgID, req.Name, req.ResourceTypeID, int32(req.MeetingMode), attrJSON, req.Latitude, req.Longitude, req.RadiusKM, userID, resourceID,
+		tenantType,
+		orgID,
+		name,
+		req.ResourceTypeID,
+		meetingMode,
+		attrJSON,
+		lat,
+		lng,
+		radiusKM,
+		userID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("store: search resources: %w", err)
 	}
+
 	defer rows.Close()
 
 	var summaries []entity.ResourceSummary
+
 	for rows.Next() {
-		var sm entity.ResourceSummary
-		var attr []byte
+		var summary entity.ResourceSummary
 		var tenantType string
-		var orgID string
-		if err := rows.Scan(&sm.ResourceID, &sm.Name, &sm.ResourceType.ID, &sm.ResourceType.Name, &sm.ResourceType.IsActive, &sm.MeetingMode, &attr, &tenantType, &orgID, &sm.DistanceKM); err != nil {
+		var orgID *string
+
+		if err := rows.Scan(
+			&summary.ResourceID,
+			&summary.Name,
+			&summary.ResourceType.ID,
+			&summary.ResourceType.Name,
+			&summary.ResourceType.IsActive,
+			&summary.MeetingMode,
+			&tenantType,
+			&orgID,
+			&summary.DistanceKM,
+		); err != nil {
 			return nil, fmt.Errorf("store: scan resource row: %w", err)
 		}
-		sm.TenantType = entity.ParseTenantType(tenantType)
-		sm.OrgID = orgID
-		if err := json.Unmarshal(attr, &sm.Attributes); err != nil {
-			return nil, fmt.Errorf("store: unmarshal attributes: %w", err)
-		}
-		summaries = append(summaries, sm)
+
+		summary.TenantType = entity.ParseTenantType(tenantType)
+		summary.OrgID = orgID
+		summary.IsActive = true
+
+		summaries = append(summaries, summary)
 	}
+
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("store: iterate search results: %w", err)
 	}
+
+	// Search only needs the earliest available slot.
 	for i := range summaries {
-		slots, err := nextOpenSlots(ctx, s.pool, summaries[i].ResourceID, req.WindowStart, req.WindowEnd, 21)
+		slots, err := nextOpenSlots(
+			ctx,
+			s.pool,
+			summaries[i].ResourceID,
+			req.WindowStart,
+			req.WindowEnd,
+			1,
+		)
 		if err != nil {
 			return nil, err
 		}
-		summaries[i].NextAvailableSlots = slots
-		summaries[i].IsActive = true
+
+		if len(slots) > 0 {
+			summaries[i].NextAvailableSlotTime = slots[0].SlotTiming
+		}
 	}
+
 	return summaries, nil
 }
 
-func nextOpenSlots(ctx context.Context, pool *pgxpool.Pool, resourceID string, windowStart, windowEnd time.Time, limit int) ([]entity.Slot, error) {
+func nextOpenSlots(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	resourceID string,
+	windowStart *time.Time,
+	windowEnd *time.Time,
+	limit int,
+) ([]entity.Slot, error) {
 	rows, err := pool.Query(ctx, fmt.Sprintf(`
-		SELECT id, resource_id, start_time, end_time, status FROM %s
-		WHERE resource_id = $1 AND status = 1
+		SELECT
+			id,
+			resource_id,
+			start_time,
+			end_time,
+			status
+		FROM %s
+		WHERE resource_id = $1
+		  AND status = 1
 		  AND ($2::timestamptz IS NULL OR start_time >= $2)
 		  AND ($3::timestamptz IS NULL OR start_time < $3)
-		ORDER BY start_time LIMIT $4
-	`, tableSlot), resourceID, nullIfZero(windowStart), nullIfZero(windowEnd), limit)
+		ORDER BY start_time
+		LIMIT $4
+	`, tableSlot),
+		resourceID,
+		windowStart,
+		windowEnd,
+		limit,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("store: next open slots: %w", err)
 	}
+
 	defer rows.Close()
 
 	var slots []entity.Slot
+
 	for rows.Next() {
-		var sl entity.Slot
-		if err := rows.Scan(&sl.ID, &sl.ResourceID, &sl.Start, &sl.End, &sl.Status); err != nil {
+		var slot entity.Slot
+
+		if err := rows.Scan(
+			&slot.ID,
+			&slot.ResourceID,
+			&slot.SlotTiming.Start,
+			&slot.SlotTiming.End,
+			&slot.Status,
+		); err != nil {
 			return nil, fmt.Errorf("store: scan slot row: %w", err)
 		}
-		slots = append(slots, sl)
+
+		slots = append(slots, slot)
 	}
-	return slots, rows.Err()
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: iterate next open slots: %w", err)
+	}
+
+	return slots, nil
 }
 
 func (s *pgStore) GetSlot(ctx context.Context, slotID string) (entity.Slot, error) {
@@ -550,7 +702,7 @@ func (s *pgStore) GetSlot(ctx context.Context, slotID string) (entity.Slot, erro
 		JOIN %s r ON r.id = s.resource_id
 		JOIN %s rt ON rt.id = r.resource_type_id
 		WHERE s.id = $1
-	`, tableSlot, tableResource, tableResourceType), slotID).Scan(&sl.ID, &sl.ResourceID, &sl.Start, &sl.End, &sl.Status, &resourceActive, &typeActive)
+	`, tableSlot, tableResource, tableResourceType), slotID).Scan(&sl.ID, &sl.ResourceID, &sl.SlotTiming.Start, &sl.SlotTiming.End, &sl.Status, &resourceActive, &typeActive)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return entity.Slot{}, ErrSlotNotFound
 	}
@@ -610,6 +762,115 @@ func (s *pgStore) GetResourceOrgID(ctx context.Context, resourceID string) (*str
 	return &orgID, nil
 }
 
+func (s *pgStore) GetResourceById(ctx context.Context, resourceID string) (entity.Resource, error) {
+	var resource entity.Resource
+	var tenantType string
+	var orgID *string
+	var latitude, longitude *float64
+	var resourceType entity.ResourceType
+
+	err := s.pool.QueryRow(ctx, fmt.Sprintf(`
+		SELECT
+			r.id,
+			r.user_id,
+			r.tenant_type,
+			r.org_id,
+			r.resource_type_id,
+			r.name,
+			r.meeting_mode,
+			r.attributes,
+			ST_Y(r.location::geometry),
+			ST_X(r.location::geometry),
+			r.is_active,
+			rt.id,
+			rt.name,
+			rt.is_active
+		FROM %s r
+		JOIN %s rt ON rt.id = r.resource_type_id
+		WHERE r.id = $1
+	`, tableResource, tableResourceType), resourceID).Scan(
+		&resource.ID,
+		&resource.UserID,
+		&tenantType,
+		&orgID,
+		&resource.ResourceType.ID,
+		&resource.Name,
+		&resource.MeetingMode,
+		&resource.Attributes,
+		&latitude,
+		&longitude,
+		&resource.IsActive,
+		&resourceType.ID,
+		&resourceType.Name,
+		&resourceType.IsActive,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return entity.Resource{}, ErrResourceNotFound
+	}
+	if err != nil {
+		return entity.Resource{}, fmt.Errorf("store: get resource by id: %w", err)
+	}
+	resource.TenantType = entity.ParseTenantType(tenantType)
+	resource.OrgID = orgID
+	resource.ResourceType = resourceType
+	if address, ok := resource.Attributes["address"]; ok {
+		resource.Address = &address
+	}
+	if latitude != nil && longitude != nil {
+		resource.Coordinate = &entity.Coordinate{
+			Latitude:  *latitude,
+			Longitude: *longitude,
+		}
+	}
+	return resource, nil
+}
+
+func (s *pgStore) GetSlotsByResourceId(ctx context.Context, resourceID string, start time.Time, end time.Time) ([]entity.Slot, error) {
+	rows, err := s.pool.Query(ctx, fmt.Sprintf(`
+		SELECT
+			s.id,
+			s.resource_id,
+			s.start_time,
+			s.end_time,
+			s.status
+		FROM %s s
+		JOIN %s r ON r.id = s.resource_id
+		JOIN %s rt ON rt.id = r.resource_type_id
+		WHERE s.resource_id = $1
+		  AND r.is_active = TRUE
+		  AND rt.is_active = TRUE
+		  AND ($2::timestamptz IS NULL OR s.start_time >= $2)
+		  AND ($3::timestamptz IS NULL OR s.start_time < $3)
+		ORDER BY s.start_time
+	`, tableSlot, tableResource, tableResourceType),
+		resourceID,
+		nullIfZero(start),
+		nullIfZero(end),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: get slots by resource id: %w", err)
+	}
+	defer rows.Close()
+	slots := make([]entity.Slot, 0)
+	for rows.Next() {
+		var slot entity.Slot
+		if err := rows.Scan(
+			&slot.ID,
+			&slot.ResourceID,
+			&slot.SlotTiming.Start,
+			&slot.SlotTiming.End,
+			&slot.Status,
+		); err != nil {
+			return nil, fmt.Errorf("store: scan slot: %w", err)
+		}
+		slots = append(slots, slot)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: iterate slots: %w", err)
+	}
+	return slots, nil
+}
+
 func insertRecurrenceRules(ctx context.Context, tx pgx.Tx, resourceID string, rules []entity.RecurrenceRule) error {
 	for _, rule := range rules {
 		slotsJSON, err := json.Marshal(rule.Slots)
@@ -639,7 +900,7 @@ func bulkInsertSlots(ctx context.Context, tx pgx.Tx, resourceID string, slots []
 		ON CONFLICT (resource_id, start_time) DO NOTHING
 	`, tableSlot)
 	for _, sl := range slots {
-		batch.Queue(q, resourceID, sl.Start, sl.End)
+		batch.Queue(q, resourceID, sl.SlotTiming.Start, sl.SlotTiming.End)
 	}
 	br := tx.SendBatch(ctx, batch)
 	defer br.Close()

@@ -36,6 +36,8 @@ type Controller interface {
 	SetLeavePeriod(ctx context.Context, lp entity.LeavePeriod) (slotsRemoved int, err error)
 	SearchResources(ctx context.Context, req entity.SearchResourceRequest) ([]entity.ResourceSummary, error)
 	GetSlot(ctx context.Context, slotID string) (entity.Slot, error)
+	GetResourceById(ctx context.Context, resourceID string) (entity.ResourceSummary, map[string]string, error)
+	GetSlotsByResourceId(ctx context.Context, resourceID string, startUnix *int64, endUnix *int64) ([]entity.RecurrenceRule, []entity.Slot, error)
 }
 
 type resourceController struct {
@@ -91,20 +93,13 @@ func (c *resourceController) CreateResource(ctx context.Context, r entity.Resour
 	if r.Attributes == nil {
 		r.Attributes = make(map[string]string)
 	}
-	address := r.Address
 	if r.MeetingMode.RequiresLocation() {
-		if address == nil {
-			return "", entity.ErrLocationRequired
-		}
-		coordinates, err := c.locationIQClinet.GetCoordinates(ctx, *address)
+		coordinates, err := c.locationIQClinet.GetCoordinates(ctx, *r.Address)
 		if err != nil {
 			return "", err
 		}
 		if len(coordinates) == 0 {
 			return "", entity.ErrLocationRequired
-		}
-		if r.Attributes == nil {
-			r.Attributes = make(map[string]string)
 		}
 		r.Attributes["address"] = *r.Address
 		r.Coordinate = &coordinates[0]
@@ -117,7 +112,7 @@ func (c *resourceController) CreateResource(ctx context.Context, r entity.Resour
 	if err != nil {
 		return "", err
 	}
-	c.invalidateCacheByOrgValue(ctx, r.OrgID)
+	c.invalidateCacheByOrg(ctx, r.OrgID)
 	return id, nil
 }
 
@@ -128,17 +123,13 @@ func (c *resourceController) UpdateResource(ctx context.Context, r entity.Resour
 	if r.Attributes == nil {
 		r.Attributes = make(map[string]string)
 	}
-	address := r.Address
-	if address != nil {
-		coordinates, err := c.locationIQClinet.GetCoordinates(ctx, *address)
+	if r.Address != nil {
+		coordinates, err := c.locationIQClinet.GetCoordinates(ctx, *r.Address)
 		if err != nil {
 			return "", err
 		}
 		if len(coordinates) == 0 {
 			return "", entity.ErrLocationRequired
-		}
-		if r.Attributes == nil {
-			r.Attributes = make(map[string]string)
 		}
 		r.Attributes["address"] = *r.Address
 		r.Coordinate = &coordinates[0]
@@ -237,48 +228,23 @@ func (c *resourceController) SetLeavePeriod(ctx context.Context, lp entity.Leave
 	return n, nil
 }
 
-// SearchResources is the one read path fronted by a cache — the highest-QPS
-// RPC on this service, and unlike GetSlot it tolerates a few seconds of
-// staleness (Booking always re-validates via GetSlot before reserving, so a
-// stale search result can never itself cause a double-booking).
 func (c *resourceController) SearchResources(ctx context.Context, req entity.SearchResourceRequest) ([]entity.ResourceSummary, error) {
-	includeRecurrence := req.Attributes["__include_recurrence"] == "1"
-	var cacheKey string
-	if !includeRecurrence {
-		cacheKey, _ = c.searchCacheKey(ctx, req)
-		if cacheKey != "" {
-			if cached, ok, err := c.client.GetCachedSearch(ctx, cacheKey); err == nil && ok {
-				var summaries []entity.ResourceSummary
-				if json.Unmarshal(cached, &summaries) == nil {
-					return summaries, nil
-				}
+	if err := util.ValidateResourceSearchRequest(req); err != nil {
+		return nil, err
+	}
+	cacheKey, _ := c.searchCacheKey(ctx, req)
+	if cacheKey != "" {
+		if cached, ok, err := c.client.GetCachedSearch(ctx, cacheKey); err == nil && ok {
+			var summaries []entity.ResourceSummary
+			if err := json.Unmarshal(cached, &summaries); err == nil {
+				return summaries, nil
 			}
 		}
 	}
-
 	summaries, err := c.store.SearchResources(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-
-	if includeRecurrence {
-		if reader, ok := c.store.(interface {
-			GetRecurrence(context.Context, string) ([]entity.RecurrenceRule, error)
-		}); ok {
-			for i := range summaries {
-				rules, rerr := reader.GetRecurrence(ctx, summaries[i].ResourceID)
-				if rerr != nil {
-					return nil, rerr
-				}
-				payload, _ := json.Marshal(rules)
-				if summaries[i].Attributes == nil {
-					summaries[i].Attributes = map[string]string{}
-				}
-				summaries[i].Attributes["__recurrence_json"] = string(payload)
-			}
-		}
-	}
-
 	if cacheKey != "" {
 		if payload, err := json.Marshal(summaries); err == nil {
 			_ = c.client.SetCachedSearch(ctx, cacheKey, payload, searchCacheTTL)
@@ -287,8 +253,61 @@ func (c *resourceController) SearchResources(ctx context.Context, req entity.Sea
 	return summaries, nil
 }
 
+func (c *resourceController) GetResourceById(ctx context.Context, resourceID string) (entity.ResourceSummary, map[string]string, error) {
+	if resourceID == "" {
+		return entity.ResourceSummary{}, nil, entity.ErrInvalidResourceID
+	}
+
+	resource, err := c.store.GetResourceById(ctx, resourceID)
+	if err != nil {
+		return entity.ResourceSummary{}, nil, err
+	}
+
+	summary := entity.ResourceSummary{
+		ResourceID:   resource.ID,
+		TenantType:   resource.TenantType,
+		OrgID:        resource.OrgID,
+		Name:         resource.Name,
+		ResourceType: resource.ResourceType,
+		MeetingMode:  resource.MeetingMode,
+		IsActive:     resource.IsActive,
+	}
+
+	return summary, resource.Attributes, nil
+}
+
+func (c *resourceController) GetSlotsByResourceId(ctx context.Context, resourceID string, startUnix *int64, endUnix *int64) ([]entity.RecurrenceRule, []entity.Slot, error) {
+	if resourceID == "" {
+		return nil, nil, entity.ErrInvalidResourceID
+	}
+	if (startUnix == nil) != (endUnix == nil) {
+		return nil, nil, entity.ErrInvalidTimeRange
+	}
+	var start, end time.Time
+	if startUnix != nil {
+		start = time.Unix(*startUnix, 0)
+		end = time.Unix(*endUnix, 0)
+		if !end.After(start) {
+			return nil, nil, entity.ErrInvalidTimeRange
+		}
+	}
+	recurrence, err := c.store.GetRecurrence(ctx, resourceID)
+	if err != nil {
+		return nil, nil, err
+	}
+	slots, err := c.store.GetSlotsByResourceId(ctx, resourceID, start, end)
+	if err != nil {
+		return nil, nil, err
+	}
+	return recurrence, slots, nil
+}
+
 func (c *resourceController) searchCacheKey(ctx context.Context, req entity.SearchResourceRequest) (string, error) {
-	version, err := c.client.SearchCacheVersion(ctx, req.OrgID)
+	orgID := ""
+	if req.OrgID != nil {
+		orgID = *req.OrgID
+	}
+	version, err := c.client.SearchCacheVersion(ctx, orgID)
 	if err != nil {
 		return "", err
 	}
@@ -296,10 +315,42 @@ func (c *resourceController) searchCacheKey(ctx context.Context, req entity.Sear
 	if err != nil {
 		return "", err
 	}
-	s := (fmt.Sprintf("%d|%d|%d|%s|%s|%s|%d|%v|%.6f|%.6f|%.3f|%d|%d", globalVersion, version, req.TenantType, req.OrgID, req.Name, req.ResourceTypeID, req.MeetingMode, req.Attributes, req.Latitude, req.Longitude, req.RadiusKM,
-		req.WindowStart.Unix(), req.WindowEnd.Unix()))
-	h := sha256.Sum256([]byte(s))
-	scope := req.OrgID
+	keyPayload := struct {
+		GlobalVersion  int64               `json:"global_version"`
+		Version        int64               `json:"version"`
+		TenantType     *entity.TenantType  `json:"tenant_type"`
+		OrgID          *string             `json:"org_id"`
+		Name           *string             `json:"name"`
+		ResourceTypeID string              `json:"resource_type_id"`
+		MeetingMode    *entity.MeetingMode `json:"meeting_mode"`
+		Attributes     map[string]string   `json:"attributes"`
+		Latitude       *float64            `json:"latitude"`
+		Longitude      *float64            `json:"longitude"`
+		RadiusKM       *float64            `json:"radius_km"`
+		WindowStart    *time.Time          `json:"window_start"`
+		WindowEnd      *time.Time          `json:"window_end"`
+	}{
+		GlobalVersion:  globalVersion,
+		Version:        version,
+		TenantType:     req.TenantType,
+		OrgID:          req.OrgID,
+		Name:           req.Name,
+		ResourceTypeID: req.ResourceTypeID,
+		MeetingMode:    req.MeetingMode,
+		Attributes:     req.Attributes,
+		Latitude:       req.Latitude,
+		Longitude:      req.Longitude,
+		RadiusKM:       req.RadiusKM,
+		WindowStart:    req.WindowStart,
+		WindowEnd:      req.WindowEnd,
+	}
+
+	payload, err := json.Marshal(keyPayload)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.Sum256(payload)
+	scope := orgID
 	if scope == "" {
 		scope = "__standalone__"
 	}
@@ -345,8 +396,10 @@ func (c *resourceController) expandRecurrence(rules []entity.RecurrenceRule, fro
 				continue // never materialize a slot already in the past
 			}
 			slots = append(slots, entity.Slot{
-				Start:  start.UTC(),
-				End:    end.UTC(),
+				SlotTiming: entity.SlotTiming{
+					Start: start.UTC(),
+					End:   end.UTC(),
+				},
 				Status: entity.SlotStatusOpen,
 			})
 		}

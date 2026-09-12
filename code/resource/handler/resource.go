@@ -142,6 +142,22 @@ func (h *Handler) GetSlot(ctx context.Context, req *pb.GetSlotRequest) (*pb.GetS
 	return util.SlotToProto(slot), nil
 }
 
+func (h *Handler) GetResourceById(ctx context.Context, req *pb.GetResourceByIdRequest) (*pb.GetResourceByIdResponse, error) {
+	summary, attributes, err := h.controller.GetResourceById(ctx, req.GetResourceId())
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return util.GetResourceByIdResponseToProto(summary, attributes), nil
+}
+
+func (h *Handler) GetSlotsByResourceId(ctx context.Context, req *pb.GetSlotsByResourceIdRequest) (*pb.GetSlotsByResourceIdResponse, error) {
+	recurrence, slots, err := h.controller.GetSlotsByResourceId(ctx, req.GetResourceId(), req.StartUnix, req.EndUnix)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return util.GetSlotsByResourceIdResponseToProto(recurrence, slots), nil
+}
+
 func mapErr(err error) error {
 	switch {
 	case errors.Is(err, store.ErrResourceNotFound),

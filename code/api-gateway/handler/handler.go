@@ -346,7 +346,6 @@ func (h *Handler) GetSlotsByResourceId(w http.ResponseWriter, r *http.Request) {
 		util.WriteJSON(w, map[string]string{"code": "INVALID_ARGUMENT", "message": "resource id is required"}, http.StatusBadRequest)
 		return
 	}
-
 	startUnix, err := optionalUnixQuery(r, "start_unix")
 	if err != nil {
 		util.WriteJSON(w, map[string]string{"code": "INVALID_ARGUMENT", "message": err.Error()}, http.StatusBadRequest)
@@ -365,12 +364,53 @@ func (h *Handler) GetSlotsByResourceId(w http.ResponseWriter, r *http.Request) {
 		util.WriteJSON(w, map[string]string{"code": "INVALID_ARGUMENT", "message": "end_unix must be after start_unix"}, http.StatusBadRequest)
 		return
 	}
-
 	resp, e := h.Resource.GetSlotsByResourceId(r.Context(), &resourcepb.GetSlotsByResourceIdRequest{
 		ResourceId: resourceID,
 		StartUnix:  startUnix,
 		EndUnix:    endUnix,
 	})
+	if e != nil {
+		call(w, resp, e)
+		return
+	}
+	if startUnix != nil && endUnix != nil {
+		ctx := metadata.AppendToOutgoingContext(meta(r), "x-list-scope", "resource")
+		upcoming, upErr := h.Booking.ListUpcomingBookings(ctx, &bookingpb.ListUserBookingsRequest{UserId: resourceID})
+		past, pastErr := h.Booking.ListPastBookings(ctx, &bookingpb.ListUserBookingsRequest{UserId: resourceID})
+
+		if upErr == nil && pastErr == nil {
+			bookedRanges := make(map[string]bool)
+			for _, list := range []*bookingpb.ListUserBookingsResponse{upcoming, past} {
+				for _, booking := range list.GetBookings() {
+					if booking == nil || booking.GetResourceId() != resourceID {
+						continue
+					}
+					st := booking.GetStatus().String()
+					if st != "BOOKING_STATUS_CONFIRMED" && st != "BOOKING_STATUS_WAITLISTED" {
+						continue
+					}
+					if booking.GetStartUnix() < *startUnix || booking.GetStartUnix() >= *endUnix {
+						continue
+					}
+					key := fmt.Sprintf("%d-%d", booking.GetStartUnix(), booking.GetEndUnix())
+					bookedRanges[key] = true
+				}
+			}
+			for _, slot := range resp.GetSlots() {
+				if slot == nil || slot.GetSlotTiming() == nil {
+					continue
+				}
+				st := slot.GetSlotTiming().GetStartUnix()
+				et := slot.GetSlotTiming().GetEndUnix()
+				key := fmt.Sprintf("%d-%d", st, et)
+
+				if bookedRanges[key] {
+					slot.Status = resourcepb.SlotStatus_SLOT_STATUS_BOOKED
+				}
+			}
+		}
+	}
+
 	call(w, resp, e)
 }
 
@@ -1061,8 +1101,21 @@ func (h *Handler) SetMyRecurringAvailability(w http.ResponseWriter, r *http.Requ
 	resp, e := h.Resource.SetRecurringAvailability(meta(r), req)
 	call(w, resp, e)
 }
+func extractResourceIDFromPath(path string) string {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	for i, part := range parts {
+		if part == "resources" && i+1 < len(parts) && parts[i+1] != "slot-exceptions" {
+			return parts[i+1]
+		}
+	}
+	return ""
+}
 func (h *Handler) AddSlotException(w http.ResponseWriter, r *http.Request) {
-	if !h.ownsResource(r, pathID(r.URL.Path)) {
+	resourceID := r.PathValue("id")
+	if resourceID == "" {
+		resourceID = extractResourceIDFromPath(r.URL.Path)
+	}
+	if !h.ownsResource(r, resourceID) {
 		writeForbidden(w, "resource access denied")
 		return
 	}
@@ -1071,7 +1124,8 @@ func (h *Handler) AddSlotException(w http.ResponseWriter, r *http.Request) {
 		util.WriteJSON(w, map[string]string{"code": "INVALID_ARGUMENT", "message": e.Error()}, 400)
 		return
 	}
-	req.ResourceId = pathID(r.URL.Path)
+
+	req.ResourceId = resourceID
 	resp, e := h.Resource.AddSlotException(meta(r), req)
 	call(w, resp, e)
 }

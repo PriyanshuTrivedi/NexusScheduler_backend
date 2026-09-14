@@ -1,0 +1,12 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "cache",
+    srcs = ["cache.go"],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/identity/client/cache",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//code/identity/entity",
+        "@com_github_redis_go_redis_v9//:go-redis",
+    ],
+)

@@ -19,6 +19,7 @@ import (
 const (
 	defaultExpansionWeeks = 4
 	searchCacheTTL        = 30 * time.Second
+	resourceTypeCacheKey  = "resource:types"
 )
 
 type Controller interface {
@@ -57,7 +58,36 @@ func New(s store.Store, c client.Client, lc locationIQ.LocationIQClient) Control
 }
 
 func (c *resourceController) ListResourceTypes(ctx context.Context) ([]entity.ResourceType, error) {
-	return c.store.ListResourceTypes(ctx)
+	if cached, ok, cacheErr := c.client.GetCachedSearch(ctx, resourceTypeCacheKey); cacheErr == nil && ok {
+		var resourceTypes []entity.ResourceType
+		if json.Unmarshal(cached, &resourceTypes) == nil {
+			return resourceTypes, nil
+		}
+	}
+
+	resourceTypes, err := c.store.ListResourceTypes(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	_ = c.cacheResourceTypes(ctx, resourceTypes)
+	return resourceTypes, nil
+}
+
+func (c *resourceController) cacheResourceTypes(ctx context.Context, resourceTypes []entity.ResourceType) error {
+	payload, err := json.Marshal(resourceTypes)
+	if err != nil {
+		return err
+	}
+	return c.client.SetCachedSearch(ctx, resourceTypeCacheKey, payload, 0)
+}
+
+func (c *resourceController) refreshResourceTypesCache(ctx context.Context) {
+	resourceTypes, err := c.store.ListResourceTypes(ctx)
+	if err != nil {
+		return
+	}
+	_ = c.cacheResourceTypes(ctx, resourceTypes)
 }
 
 func (c *resourceController) CreateResourceType(ctx context.Context, name string) (entity.ResourceType, error) {
@@ -65,7 +95,12 @@ func (c *resourceController) CreateResourceType(ctx context.Context, name string
 	if err := rt.Validate(); err != nil {
 		return entity.ResourceType{}, err
 	}
-	return c.store.CreateResourceType(ctx, name)
+	rt, err := c.store.CreateResourceType(ctx, name)
+	if err == nil {
+		c.refreshResourceTypesCache(ctx)
+		_ = c.client.InvalidateGlobalSearchCache(ctx)
+	}
+	return rt, err
 }
 
 func (c *resourceController) SetResourceTypeStatus(ctx context.Context, resourceTypeID string, isActive bool) (entity.ResourceType, error) {
@@ -74,6 +109,7 @@ func (c *resourceController) SetResourceTypeStatus(ctx context.Context, resource
 	}
 	rt, err := c.store.SetResourceTypeStatus(ctx, resourceTypeID, isActive)
 	if err == nil {
+		c.refreshResourceTypesCache(ctx)
 		_ = c.client.InvalidateGlobalSearchCache(ctx)
 	}
 	return rt, err
@@ -83,7 +119,12 @@ func (c *resourceController) DeleteResourceType(ctx context.Context, resourceTyp
 	if resourceTypeID == "" {
 		return entity.ErrInvalidResourceTypeID
 	}
-	return c.store.DeleteResourceType(ctx, resourceTypeID)
+	err := c.store.DeleteResourceType(ctx, resourceTypeID)
+	if err == nil {
+		c.refreshResourceTypesCache(ctx)
+		_ = c.client.InvalidateGlobalSearchCache(ctx)
+	}
+	return err
 }
 
 func (c *resourceController) CreateResource(ctx context.Context, r entity.Resource) (string, error) {
@@ -414,14 +455,6 @@ func toTimeWeekday(d entity.DayOfWeek) time.Weekday {
 		return time.Sunday
 	}
 	return time.Weekday(d)
-}
-
-func (c *resourceController) invalidateCacheByOrgValue(ctx context.Context, orgID string) {
-	if orgID == "" {
-		c.invalidateCacheByOrg(ctx, nil)
-		return
-	}
-	c.invalidateCacheByOrg(ctx, &orgID)
 }
 
 func (c *resourceController) invalidateCacheByOrg(ctx context.Context, orgID *string) {

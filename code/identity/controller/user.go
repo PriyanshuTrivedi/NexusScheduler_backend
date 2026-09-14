@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/PriyanshuTrivedi/nexus-scheduler/code/identity/client/cache"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/identity/entity"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/identity/store"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/identity/util"
@@ -26,9 +27,16 @@ type Controller interface {
 
 type identityController struct {
 	store store.Store
+	cache cache.Client
 }
 
-func New(s store.Store) Controller { return &identityController{store: s} }
+func New(s store.Store, caches ...cache.Client) Controller {
+	var c cache.Client
+	if len(caches) > 0 {
+		c = caches[0]
+	}
+	return &identityController{store: s, cache: c}
+}
 
 func (c *identityController) RegisterClient(ctx context.Context, name string, identifier entity.UserIdentifier, password string) (entity.User, error) {
 	u := entity.User{
@@ -124,14 +132,22 @@ func (c *identityController) CreateOrganization(ctx context.Context, name string
 	if err := org.Validate(); err != nil {
 		return entity.Organization{}, err
 	}
-	return c.store.CreateOrganization(ctx, org.Name)
+	created, err := c.store.CreateOrganization(ctx, org.Name)
+	if err == nil {
+		c.refreshOrganizationsCache(ctx)
+	}
+	return created, err
 }
 
 func (c *identityController) SetOrganizationStatus(ctx context.Context, organizationID string, isActive bool) (entity.Organization, error) {
 	if strings.TrimSpace(organizationID) == "" {
 		return entity.Organization{}, entity.ErrInvalidOrgID
 	}
-	return c.store.SetOrganizationStatus(ctx, organizationID, isActive)
+	updated, err := c.store.SetOrganizationStatus(ctx, organizationID, isActive)
+	if err == nil {
+		c.refreshOrganizationsCache(ctx)
+	}
+	return updated, err
 }
 
 func (c *identityController) GetOrganization(ctx context.Context, organizationID string) (entity.Organization, error) {
@@ -141,6 +157,31 @@ func (c *identityController) GetOrganization(ctx context.Context, organizationID
 	return c.store.GetOrganization(ctx, organizationID)
 }
 
+func (c *identityController) refreshOrganizationsCache(ctx context.Context) {
+	if c.cache == nil {
+		return
+	}
+	organizations, err := c.store.ListOrganizations(ctx)
+	if err != nil {
+		return
+	}
+	_ = c.cache.SetOrganizations(ctx, organizations)
+}
+
 func (c *identityController) ListOrganizations(ctx context.Context) ([]entity.Organization, error) {
-	return c.store.ListOrganizations(ctx)
+	if c.cache != nil {
+		if organizations, ok, cacheErr := c.cache.GetOrganizations(ctx); cacheErr == nil && ok {
+			return organizations, nil
+		}
+	}
+
+	organizations, err := c.store.ListOrganizations(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if c.cache != nil {
+		_ = c.cache.SetOrganizations(ctx, organizations)
+	}
+	return organizations, nil
 }

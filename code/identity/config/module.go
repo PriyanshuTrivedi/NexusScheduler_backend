@@ -5,9 +5,11 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/fx"
 	"google.golang.org/grpc"
 
+	"github.com/PriyanshuTrivedi/nexus-scheduler/code/identity/client/cache"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/identity/controller"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/identity/handler"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/identity/store"
@@ -40,6 +42,11 @@ func newPostgresPool() (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
+func newRedisClient() *redis.Client {
+	addr := configloader.MustGetEnv("REDIS_ADDR")
+	return redis.NewClient(&redis.Options{Addr: addr})
+}
+
 func registerHandler(server *grpc.Server, h *handler.Handler) {
 	identitypb.RegisterIdentityServiceServer(server, h)
 }
@@ -48,7 +55,9 @@ var Module = fx.Options(
 	fx.Provide(loadConfig),
 	fx.Provide(grpcServerConfig),
 	fx.Provide(newPostgresPool),
+	fx.Provide(newRedisClient),
 	fx.Provide(store.New),
+	fx.Provide(cache.New),
 	fx.Provide(controller.New),
 	fx.Provide(handler.New),
 	grpcserver.Module,

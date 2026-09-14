@@ -6,6 +6,7 @@ go_library(
     importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/identity/controller",
     visibility = ["//visibility:public"],
     deps = [
+        "//code/identity/client/cache",
         "//code/identity/entity",
         "//code/identity/store",
         "//code/identity/util",
@@ -18,6 +19,11 @@ go_test(
     embed = [":controller"],
     deps = [
         "//code/identity/entity",
-        "@com_github_stretchr_testify//assert",
+        "//code/identity/store",
+        "//code/identity/util",
+        "//gen/mocks/identity/client/cache",
+        "//gen/mocks/identity/store",
+        "@com_github_golang_mock//gomock",
+        "@com_github_stretchr_testify//require",
     ],
 )

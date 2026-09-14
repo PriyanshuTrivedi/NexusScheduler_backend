@@ -35,6 +35,47 @@ func stringPtr(s string) *string {
 	return &s
 }
 
+func TestListResourceTypes_CacheHitSkipsStore(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := storemocks.NewMockStore(ctrl)
+	mockClient := clientmocks.NewMockClient(ctrl)
+
+	c := New(
+		mockStore,
+		mockClient,
+		locationIQmocks.NewMockLocationIQClient(ctrl),
+	)
+
+	cached := []byte(`[{"id":"type-1","name":"doctor","is_active":true}]`)
+	mockClient.EXPECT().GetCachedSearch(gomock.Any(), resourceTypeCacheKey).Return(cached, true, nil)
+
+	got, err := c.ListResourceTypes(context.Background())
+	assert.NoError(t, err)
+	assert.Len(t, got, 1)
+	assert.Equal(t, "type-1", got[0].ID)
+}
+
+func TestListResourceTypes_CacheMissReadsStoreAndSetsCache(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := storemocks.NewMockStore(ctrl)
+	mockClient := clientmocks.NewMockClient(ctrl)
+
+	c := New(
+		mockStore,
+		mockClient,
+		locationIQmocks.NewMockLocationIQClient(ctrl),
+	)
+
+	resourceTypes := []entity.ResourceType{{ID: "type-1", Name: "doctor", IsActive: true}}
+	mockClient.EXPECT().GetCachedSearch(gomock.Any(), resourceTypeCacheKey).Return(nil, false, nil)
+	mockStore.EXPECT().ListResourceTypes(gomock.Any()).Return(resourceTypes, nil)
+	mockClient.EXPECT().SetCachedSearch(gomock.Any(), resourceTypeCacheKey, gomock.Any(), time.Duration(0)).Return(nil)
+
+	got, err := c.ListResourceTypes(context.Background())
+	assert.NoError(t, err)
+	assert.Equal(t, resourceTypes, got)
+}
+
 func TestCreateResourceType_ValidationAndStore(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storemocks.NewMockStore(ctrl)
@@ -52,7 +93,13 @@ func TestCreateResourceType_ValidationAndStore(t *testing.T) {
 		ID:   "type-1",
 		Name: "doctor",
 	}, nil)
+	mockStore.EXPECT().ListResourceTypes(gomock.Any()).Return([]entity.ResourceType{{ID: "type-1", Name: "doctor"}}, nil)
+	mockClient := clientmocks.NewMockClient(ctrl)
+	mockClient.EXPECT().SetCachedSearch(gomock.Any(), resourceTypeCacheKey, gomock.Any(), time.Duration(0)).Return(nil)
+	mockClient.EXPECT().InvalidateGlobalSearchCache(gomock.Any()).Return(nil)
 
+	// Recreate controller with the client so the successful mutation refreshes the cache.
+	c = New(mockStore, mockClient, locationIQmocks.NewMockLocationIQClient(ctrl))
 	got, err := c.CreateResourceType(context.Background(), "doctor")
 
 	assert.NoError(t, err)
@@ -62,16 +109,20 @@ func TestCreateResourceType_ValidationAndStore(t *testing.T) {
 func TestDeleteResourceType_Validation(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockStore := storemocks.NewMockStore(ctrl)
+	mockClient := clientmocks.NewMockClient(ctrl)
 
 	c := New(
 		mockStore,
-		clientmocks.NewMockClient(ctrl),
+		mockClient,
 		locationIQmocks.NewMockLocationIQClient(ctrl),
 	)
 
 	assert.ErrorIs(t, c.DeleteResourceType(context.Background(), ""), entity.ErrInvalidResourceTypeID)
 
 	mockStore.EXPECT().DeleteResourceType(gomock.Any(), "type-1").Return(nil)
+	mockStore.EXPECT().ListResourceTypes(gomock.Any()).Return([]entity.ResourceType{}, nil)
+	mockClient.EXPECT().SetCachedSearch(gomock.Any(), resourceTypeCacheKey, gomock.Any(), time.Duration(0)).Return(nil)
+	mockClient.EXPECT().InvalidateGlobalSearchCache(gomock.Any()).Return(nil)
 
 	assert.NoError(t, c.DeleteResourceType(context.Background(), "type-1"))
 }
@@ -671,6 +722,12 @@ func TestSetResourceTypeStatus_InvalidatesGlobalCache(t *testing.T) {
 			IsActive: false,
 		}, nil)
 
+	mockStore.EXPECT().ListResourceTypes(gomock.Any()).Return([]entity.ResourceType{{
+		ID:       "type-1",
+		Name:     "doctor",
+		IsActive: false,
+	}}, nil)
+	mockClient.EXPECT().SetCachedSearch(gomock.Any(), resourceTypeCacheKey, gomock.Any(), time.Duration(0)).Return(nil)
 	mockClient.EXPECT().InvalidateGlobalSearchCache(gomock.Any()).Return(nil)
 
 	_, err := c.SetResourceTypeStatus(context.Background(), "type-1", false)

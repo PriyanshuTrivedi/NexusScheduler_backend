@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -42,8 +43,14 @@ func TestCreateBooking_Success(t *testing.T) {
 
 	booking := validBooking()
 
+	lockKey := fmt.Sprintf(
+		"booking:%s:%s",
+		booking.ResourceID,
+		booking.Start.UTC().Format(time.RFC3339Nano),
+	)
+
 	mockClient.EXPECT().
-		AcquireLock(gomock.Any(), booking.ResourceID).
+		AcquireLock(gomock.Any(), lockKey).
 		Return(func() {}, true, nil)
 
 	mockStore.EXPECT().
@@ -67,8 +74,13 @@ func TestCreateBooking_LockError(t *testing.T) {
 	booking := validBooking()
 	lockErr := errors.New("redis unavailable")
 
+	lockKey := fmt.Sprintf(
+		"booking:%s:%s",
+		booking.ResourceID,
+		booking.Start.UTC().Format(time.RFC3339Nano),
+	)
 	mockClient.EXPECT().
-		AcquireLock(gomock.Any(), booking.ResourceID).
+		AcquireLock(gomock.Any(), lockKey).
 		Return(nil, false, lockErr)
 
 	result, err := ctl.CreateBooking(context.Background(), booking)
@@ -82,8 +94,13 @@ func TestCreateBooking_SlotAlreadyBooked(t *testing.T) {
 
 	booking := validBooking()
 
+	lockKey := fmt.Sprintf(
+		"booking:%s:%s",
+		booking.ResourceID,
+		booking.Start.UTC().Format(time.RFC3339Nano),
+	)
 	mockClient.EXPECT().
-		AcquireLock(gomock.Any(), booking.ResourceID).
+		AcquireLock(gomock.Any(), lockKey).
 		Return(nil, false, nil)
 
 	result, err := ctl.CreateBooking(context.Background(), booking)
@@ -98,8 +115,13 @@ func TestCreateBooking_StoreError(t *testing.T) {
 	booking := validBooking()
 	storeErr := errors.New("database error")
 
+	lockKey := fmt.Sprintf(
+		"booking:%s:%s",
+		booking.ResourceID,
+		booking.Start.UTC().Format(time.RFC3339Nano),
+	)
 	mockClient.EXPECT().
-		AcquireLock(gomock.Any(), booking.ResourceID).
+		AcquireLock(gomock.Any(), lockKey).
 		Return(func() {}, true, nil)
 
 	mockStore.EXPECT().

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -42,7 +43,13 @@ func (ctl *controller) CreateBooking(ctx context.Context, b entity.Booking) (*en
 		return nil, err
 	}
 
-	release, ok, err := ctl.client.AcquireLock(ctx, b.ResourceID)
+	lockKey := fmt.Sprintf(
+		"booking:%s:%s",
+		b.ResourceID,
+		b.Start.UTC().Format(time.RFC3339Nano),
+	)
+
+	release, ok, err := ctl.client.AcquireLock(ctx, lockKey)
 	if err != nil {
 		return nil, err
 	}

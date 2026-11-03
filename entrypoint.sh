@@ -29,12 +29,16 @@ echo "starting resource..."
 echo "starting booking..."
 /app/booking &
 
+echo "starting chatbot..."
+/app/chatbot &
+
 echo "waiting for services..."
 
 for i in $(seq 1 30); do
     if nc -z 127.0.0.1 9002 &&
        nc -z 127.0.0.1 9003 &&
-       nc -z 127.0.0.1 9004; then
+       nc -z 127.0.0.1 9004 &&
+       nc -z 127.0.0.1 9005; then
         echo "all gRPC services are ready"
         break
     fi

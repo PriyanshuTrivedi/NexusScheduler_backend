@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/controller"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/util"
@@ -24,6 +25,7 @@ func (h *Handler) SendMessage(ctx context.Context, req *chatbotpb.SendMessageReq
 
 	entityResp, err := h.ctl.SendMessage(ctx, entityReq)
 	if err != nil {
+		fmt.Printf("SendMessage error: %v\n", err)
 		return nil, util.ErrorToGRPC(err)
 	}
 
@@ -35,6 +37,7 @@ func (h *Handler) CloseConversation(ctx context.Context, req *chatbotpb.CloseCon
 
 	entityResp, err := h.ctl.CloseConversation(ctx, entityReq)
 	if err != nil {
+		fmt.Printf("CloseConversation error: %v\n", err)
 		return nil, util.ErrorToGRPC(err)
 	}
 
@@ -46,6 +49,7 @@ func (h *Handler) ListConversations(ctx context.Context, req *chatbotpb.ListConv
 
 	entityResp, err := h.ctl.ListConversations(ctx, entityReq)
 	if err != nil {
+		fmt.Printf("ListConversations error: %v\n", err)
 		return nil, util.ErrorToGRPC(err)
 	}
 
@@ -57,6 +61,7 @@ func (h *Handler) GetMessages(ctx context.Context, req *chatbotpb.GetMessagesReq
 
 	entityResp, err := h.ctl.GetMessages(ctx, entityReq)
 	if err != nil {
+		fmt.Printf("GetMessages error: %v\n", err)
 		return nil, util.ErrorToGRPC(err)
 	}
 

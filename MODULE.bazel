@@ -23,6 +23,7 @@ use_repo(
     "com_github_rs_cors",
     "com_github_stretchr_testify",
     "in_gopkg_yaml_v3",
+    "org_golang_google_genai",
     "org_golang_google_grpc",
     "org_golang_google_protobuf",
     "org_golang_x_crypto",

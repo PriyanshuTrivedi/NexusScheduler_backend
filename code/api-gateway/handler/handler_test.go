@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,32 +10,36 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/api-gateway/middleware"
 	bookingpb "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/booking"
+	chatbotpb "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/chatbot"
 	identitypb "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/identity"
 	resourcepb "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/resource"
 	clientmocks "github.com/PriyanshuTrivedi/nexus-scheduler/gen/mocks/api_gateway/client"
 )
 
-func newHandlerTest(t *testing.T) (*Handler, *clientmocks.MockIdentityClient, *clientmocks.MockResourceClient, *clientmocks.MockBookingClient) {
+func newHandlerTest(t *testing.T) (*Handler, *clientmocks.MockIdentityClient, *clientmocks.MockResourceClient, *clientmocks.MockBookingClient, *clientmocks.MockChatbotClient) {
 	t.Helper()
 
 	ctrl := gomock.NewController(t)
 	identity := clientmocks.NewMockIdentityClient(ctrl)
 	resource := clientmocks.NewMockResourceClient(ctrl)
 	booking := clientmocks.NewMockBookingClient(ctrl)
+	chatbot := clientmocks.NewMockChatbotClient(ctrl)
 
 	h := New(
 		identity,
 		resource,
 		booking,
+		chatbot,
 		middleware.NewTokenIssuer("secret", "issuer", time.Hour),
 	)
 
-	return h, identity, resource, booking
+	return h, identity, resource, booking, chatbot
 }
 
 func loginRequest(path string) *http.Request {
@@ -76,7 +81,7 @@ func resourcePrincipal() middleware.Principal {
 }
 
 func TestLoginClientSuccess(t *testing.T) {
-	h, identity, _, _ := newHandlerTest(t)
+	h, identity, _, _, _ := newHandlerTest(t)
 
 	identity.EXPECT().
 		Login(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -95,7 +100,7 @@ func TestLoginClientSuccess(t *testing.T) {
 }
 
 func TestLoginClientRejectsResource(t *testing.T) {
-	h, identity, _, _ := newHandlerTest(t)
+	h, identity, _, _, _ := newHandlerTest(t)
 
 	identity.EXPECT().
 		Login(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -113,7 +118,7 @@ func TestLoginClientRejectsResource(t *testing.T) {
 }
 
 func TestLoginResourceAllowsResource(t *testing.T) {
-	h, identity, _, _ := newHandlerTest(t)
+	h, identity, _, _, _ := newHandlerTest(t)
 
 	identity.EXPECT().
 		Login(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -132,7 +137,7 @@ func TestLoginResourceAllowsResource(t *testing.T) {
 }
 
 func TestLoginResourceRejectsClient(t *testing.T) {
-	h, identity, _, _ := newHandlerTest(t)
+	h, identity, _, _, _ := newHandlerTest(t)
 
 	identity.EXPECT().
 		Login(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -150,7 +155,7 @@ func TestLoginResourceRejectsClient(t *testing.T) {
 }
 
 func TestLoginClientIdentityServiceError(t *testing.T) {
-	h, identity, _, _ := newHandlerTest(t)
+	h, identity, _, _, _ := newHandlerTest(t)
 
 	identity.EXPECT().
 		Login(gomock.Any(), gomock.Any(), gomock.Any()).
@@ -163,7 +168,7 @@ func TestLoginClientIdentityServiceError(t *testing.T) {
 }
 
 func TestLoginClientInvalidBody(t *testing.T) {
-	h, _, _, _ := newHandlerTest(t)
+	h, _, _, _, _ := newHandlerTest(t)
 
 	req := httptest.NewRequest(
 		http.MethodPost,
@@ -178,7 +183,7 @@ func TestLoginClientInvalidBody(t *testing.T) {
 }
 
 func TestLoginResourceInvalidBody(t *testing.T) {
-	h, _, _, _ := newHandlerTest(t)
+	h, _, _, _, _ := newHandlerTest(t)
 
 	req := httptest.NewRequest(
 		http.MethodPost,
@@ -232,7 +237,7 @@ func TestAuthenticatedRequest(t *testing.T) {
 }
 
 func TestResourceSlotExists(t *testing.T) {
-	h, _, resource, _ := newHandlerTest(t)
+	h, _, resource, _, _ := newHandlerTest(t)
 
 	resource.EXPECT().
 		GetSlotsByResourceId(gomock.Any(), &resourcepb.GetSlotsByResourceIdRequest{
@@ -260,7 +265,7 @@ func TestResourceSlotExists(t *testing.T) {
 }
 
 func TestResourceSlotExists_NotFound(t *testing.T) {
-	h, _, resource, _ := newHandlerTest(t)
+	h, _, resource, _, _ := newHandlerTest(t)
 
 	resource.EXPECT().
 		GetSlotsByResourceId(gomock.Any(), &resourcepb.GetSlotsByResourceIdRequest{
@@ -288,7 +293,7 @@ func TestResourceSlotExists_NotFound(t *testing.T) {
 }
 
 func TestResourceSlotExists_InvalidInput(t *testing.T) {
-	h, _, _, _ := newHandlerTest(t)
+	h, _, _, _, _ := newHandlerTest(t)
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 
@@ -298,7 +303,7 @@ func TestResourceSlotExists_InvalidInput(t *testing.T) {
 }
 
 func TestResourceSlotExists_ServiceError(t *testing.T) {
-	h, _, resource, _ := newHandlerTest(t)
+	h, _, resource, _, _ := newHandlerTest(t)
 
 	resource.EXPECT().
 		GetSlotsByResourceId(gomock.Any(), &resourcepb.GetSlotsByResourceIdRequest{
@@ -318,7 +323,7 @@ func ptrInt64(v int64) *int64 {
 }
 
 func TestCanAccessBooking_Unauthenticated(t *testing.T) {
-	h, _, _, booking := newHandlerTest(t)
+	h, _, _, booking, _ := newHandlerTest(t)
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 
@@ -330,7 +335,7 @@ func TestCanAccessBooking_Unauthenticated(t *testing.T) {
 }
 
 func TestCanAccessBooking_Client(t *testing.T) {
-	h, _, _, booking := newHandlerTest(t)
+	h, _, _, booking, _ := newHandlerTest(t)
 
 	r := authenticatedRequest(
 		t,
@@ -351,7 +356,7 @@ func TestCanAccessBooking_Client(t *testing.T) {
 }
 
 func TestCanAccessBooking_ClientWrongUser(t *testing.T) {
-	h, _, _, booking := newHandlerTest(t)
+	h, _, _, booking, _ := newHandlerTest(t)
 
 	r := authenticatedRequest(
 		t,
@@ -372,7 +377,7 @@ func TestCanAccessBooking_ClientWrongUser(t *testing.T) {
 }
 
 func TestCanAccessBooking_Resource(t *testing.T) {
-	h, _, resource, booking := newHandlerTest(t)
+	h, _, resource, booking, _ := newHandlerTest(t)
 
 	r := authenticatedRequest(
 		t,
@@ -403,7 +408,7 @@ func TestCanAccessBooking_Resource(t *testing.T) {
 }
 
 func TestCanAccessBooking_ResourceWrongResource(t *testing.T) {
-	h, _, resource, booking := newHandlerTest(t)
+	h, _, resource, booking, _ := newHandlerTest(t)
 
 	r := authenticatedRequest(
 		t,
@@ -434,7 +439,7 @@ func TestCanAccessBooking_ResourceWrongResource(t *testing.T) {
 }
 
 func TestCanAccessBooking_BookingServiceError(t *testing.T) {
-	h, _, _, booking := newHandlerTest(t)
+	h, _, _, booking, _ := newHandlerTest(t)
 
 	r := authenticatedRequest(
 		t,
@@ -452,7 +457,7 @@ func TestCanAccessBooking_BookingServiceError(t *testing.T) {
 }
 
 func TestRescheduleBooking_RejectsInvalidTime(t *testing.T) {
-	h, _, _, booking := newHandlerTest(t)
+	h, _, _, booking, _ := newHandlerTest(t)
 
 	r := authenticatedRequest(
 		t,
@@ -476,7 +481,7 @@ func TestRescheduleBooking_RejectsInvalidTime(t *testing.T) {
 }
 
 func TestRescheduleBooking_RejectsInvalidReference(t *testing.T) {
-	h, _, _, _ := newHandlerTest(t)
+	h, _, _, _, _ := newHandlerTest(t)
 
 	r := authenticatedRequest(
 		t,
@@ -488,6 +493,189 @@ func TestRescheduleBooking_RejectsInvalidReference(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	h.RescheduleBooking(rr, r)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestSendChatMessage(t *testing.T) {
+	h, _, _, _, chatbot := newHandlerTest(t)
+
+	r := authenticatedRequest(
+		t,
+		http.MethodPost,
+		"/api/v1/chat/messages",
+		`{"message":"Hello","user_id":"attacker-user"}`,
+		clientPrincipal(),
+	)
+
+	chatbot.EXPECT().
+		SendMessage(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, req *chatbotpb.SendMessageRequest, _ ...grpc.CallOption) (*chatbotpb.SendMessageResponse, error) {
+			assert.Equal(t, "u1", req.UserId)
+			assert.Equal(t, "Hello", req.Message)
+			return &chatbotpb.SendMessageResponse{}, nil
+		})
+
+	rr := httptest.NewRecorder()
+	h.SendChatMessage(rr, r)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestSendChatMessage_InvalidBody(t *testing.T) {
+	h, _, _, _, _ := newHandlerTest(t)
+
+	r := authenticatedRequest(
+		t,
+		http.MethodPost,
+		"/api/v1/chat/messages",
+		`{"message":`,
+		clientPrincipal(),
+	)
+
+	rr := httptest.NewRecorder()
+	h.SendChatMessage(rr, r)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestCloseChatConversation(t *testing.T) {
+	h, _, _, _, chatbot := newHandlerTest(t)
+
+	r := authenticatedRequest(
+		t,
+		http.MethodPost,
+		"/api/v1/chat/conversations/close",
+		"",
+		clientPrincipal(),
+	)
+
+	chatbot.EXPECT().
+		CloseConversation(gomock.Any(), &chatbotpb.CloseConversationRequest{
+			UserId: "u1",
+		}).
+		Return(&chatbotpb.CloseConversationResponse{}, nil)
+
+	rr := httptest.NewRecorder()
+	h.CloseChatConversation(rr, r)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestListChatConversations(t *testing.T) {
+	h, _, _, _, chatbot := newHandlerTest(t)
+
+	r := authenticatedRequest(
+		t,
+		http.MethodGet,
+		"/api/v1/chat/conversations?limit=10&offset=5",
+		"",
+		clientPrincipal(),
+	)
+
+	chatbot.EXPECT().
+		ListConversations(gomock.Any(), &chatbotpb.ListConversationsRequest{
+			UserId: "u1",
+			Limit:  10,
+			Offset: 5,
+		}).
+		Return(&chatbotpb.ListConversationsResponse{}, nil)
+
+	rr := httptest.NewRecorder()
+	h.ListChatConversations(rr, r)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestListChatConversations_InvalidLimit(t *testing.T) {
+	h, _, _, _, _ := newHandlerTest(t)
+
+	r := authenticatedRequest(
+		t,
+		http.MethodGet,
+		"/api/v1/chat/conversations?limit=invalid",
+		"",
+		clientPrincipal(),
+	)
+
+	rr := httptest.NewRecorder()
+	h.ListChatConversations(rr, r)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestListChatConversations_NegativeLimit(t *testing.T) {
+	h, _, _, _, _ := newHandlerTest(t)
+
+	r := authenticatedRequest(
+		t,
+		http.MethodGet,
+		"/api/v1/chat/conversations?limit=-1",
+		"",
+		clientPrincipal(),
+	)
+
+	rr := httptest.NewRecorder()
+	h.ListChatConversations(rr, r)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestListChatConversations_InvalidOffset(t *testing.T) {
+	h, _, _, _, _ := newHandlerTest(t)
+
+	r := authenticatedRequest(
+		t,
+		http.MethodGet,
+		"/api/v1/chat/conversations?offset=-1",
+		"",
+		clientPrincipal(),
+	)
+
+	rr := httptest.NewRecorder()
+	h.ListChatConversations(rr, r)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestGetChatMessages(t *testing.T) {
+	h, _, _, _, chatbot := newHandlerTest(t)
+
+	r := authenticatedRequest(
+		t,
+		http.MethodGet,
+		"/api/v1/chat/conversations/conversation-1/messages",
+		"",
+		clientPrincipal(),
+	)
+	r.SetPathValue("conversation_id", "conversation-1")
+
+	chatbot.EXPECT().
+		GetMessages(gomock.Any(), &chatbotpb.GetMessagesRequest{
+			UserId:         "u1",
+			ConversationId: "conversation-1",
+		}).
+		Return(&chatbotpb.GetMessagesResponse{}, nil)
+
+	rr := httptest.NewRecorder()
+	h.GetChatMessages(rr, r)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestGetChatMessages_MissingConversationID(t *testing.T) {
+	h, _, _, _, _ := newHandlerTest(t)
+
+	r := authenticatedRequest(
+		t,
+		http.MethodGet,
+		"/api/v1/chat/conversations//messages",
+		"",
+		clientPrincipal(),
+	)
+
+	rr := httptest.NewRecorder()
+	h.GetChatMessages(rr, r)
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }

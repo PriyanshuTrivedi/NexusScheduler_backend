@@ -14,6 +14,7 @@ import (
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/api-gateway/middleware"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/api-gateway/util"
 	bookingpb "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/booking"
+	chatbotpb "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/chatbot"
 	identitypb "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/identity"
 	resourcepb "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/resource"
 	"google.golang.org/grpc/metadata"
@@ -25,14 +26,16 @@ type Handler struct {
 	Identity client.IdentityClient
 	Resource client.ResourceClient
 	Booking  client.BookingClient
+	Chatbot  client.ChatbotClient
 	Issuer   *middleware.TokenIssuer
 }
 
-func New(i client.IdentityClient, r client.ResourceClient, b client.BookingClient, issuer *middleware.TokenIssuer) *Handler {
+func New(i client.IdentityClient, r client.ResourceClient, b client.BookingClient, c client.ChatbotClient, issuer *middleware.TokenIssuer) *Handler {
 	return &Handler{
 		Identity: i,
 		Resource: r,
 		Booking:  b,
+		Chatbot:  c,
 		Issuer:   issuer,
 	}
 }
@@ -1152,4 +1155,86 @@ func (h *Handler) SetLeavePeriod(w http.ResponseWriter, r *http.Request) {
 	req.ResourceId = pathID(r.URL.Path)
 	resp, e := h.Resource.SetLeavePeriod(meta(r), req)
 	call(w, resp, e)
+}
+
+func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
+	req := new(chatbotpb.SendMessageRequest)
+	if err := decode(r, req); err != nil {
+		util.WriteJSON(w, map[string]string{
+			"code":    "INVALID_ARGUMENT",
+			"message": err.Error(),
+		}, http.StatusBadRequest)
+		return
+	}
+
+	// Never trust user_id supplied by the frontend.
+	p, _ := middleware.PrincipalFromContext(r.Context())
+	req.UserId = p.UserID
+
+	resp, err := h.Chatbot.SendMessage(meta(r), req)
+	call(w, resp, err)
+}
+
+func (h *Handler) CloseChatConversation(w http.ResponseWriter, r *http.Request) {
+	p, _ := middleware.PrincipalFromContext(r.Context())
+
+	resp, err := h.Chatbot.CloseConversation(meta(r), &chatbotpb.CloseConversationRequest{
+		UserId: p.UserID,
+	})
+	call(w, resp, err)
+}
+
+func (h *Handler) ListChatConversations(w http.ResponseWriter, r *http.Request) {
+	p, _ := middleware.PrincipalFromContext(r.Context())
+
+	var limit, offset int64
+	var err error
+
+	if value := r.URL.Query().Get("limit"); value != "" {
+		limit, err = strconv.ParseInt(value, 10, 32)
+		if err != nil || limit < 0 {
+			util.WriteJSON(w, map[string]string{
+				"code":    "INVALID_ARGUMENT",
+				"message": "limit must be a non-negative integer",
+			}, http.StatusBadRequest)
+			return
+		}
+	}
+
+	if value := r.URL.Query().Get("offset"); value != "" {
+		offset, err = strconv.ParseInt(value, 10, 32)
+		if err != nil || offset < 0 {
+			util.WriteJSON(w, map[string]string{
+				"code":    "INVALID_ARGUMENT",
+				"message": "offset must be a non-negative integer",
+			}, http.StatusBadRequest)
+			return
+		}
+	}
+
+	resp, err := h.Chatbot.ListConversations(meta(r), &chatbotpb.ListConversationsRequest{
+		UserId: p.UserID,
+		Limit:  int32(limit),
+		Offset: int32(offset),
+	})
+	call(w, resp, err)
+}
+
+func (h *Handler) GetChatMessages(w http.ResponseWriter, r *http.Request) {
+	p, _ := middleware.PrincipalFromContext(r.Context())
+
+	conversationID := r.PathValue("conversation_id")
+	if conversationID == "" {
+		util.WriteJSON(w, map[string]string{
+			"code":    "INVALID_ARGUMENT",
+			"message": "conversation_id is required",
+		}, http.StatusBadRequest)
+		return
+	}
+
+	resp, err := h.Chatbot.GetMessages(meta(r), &chatbotpb.GetMessagesRequest{
+		UserId:         p.UserID,
+		ConversationId: conversationID,
+	})
+	call(w, resp, err)
 }

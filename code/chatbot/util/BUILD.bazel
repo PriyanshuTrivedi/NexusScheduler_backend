@@ -1,0 +1,37 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "util",
+    srcs = [
+        "chat.go",
+        "llm.go",
+    ],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/util",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//code/chatbot/entity",
+        "//code/chatbot/store",
+        "//gen/idl/chatbot",
+        "@org_golang_google_genai//:genai",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+    ],
+)
+
+go_test(
+    name = "util_test",
+    srcs = [
+        "chat_test.go",
+        "llm_test.go",
+    ],
+    embed = [":util"],
+    deps = [
+        "//code/chatbot/entity",
+        "//code/chatbot/store",
+        "//gen/idl/chatbot",
+        "@com_github_stretchr_testify//assert",
+        "@org_golang_google_genai//:genai",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+    ],
+)

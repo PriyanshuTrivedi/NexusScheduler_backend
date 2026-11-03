@@ -1,0 +1,26 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "llmclients",
+    srcs = ["gemini.go"],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/client/llmclients",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//code/chatbot/client",
+        "//code/chatbot/entity",
+        "//code/chatbot/util",
+        "@org_golang_google_genai//:genai",
+    ],
+)
+
+go_test(
+    name = "llmclients_test",
+    srcs = ["gemini_test.go"],
+    embed = [":llmclients"],
+    deps = [
+        "//code/chatbot/entity",
+        "//code/chatbot/util",
+        "@com_github_stretchr_testify//require",
+        "@org_golang_google_genai//:genai",
+    ],
+)

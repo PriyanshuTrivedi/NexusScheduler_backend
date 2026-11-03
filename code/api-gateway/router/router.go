@@ -66,5 +66,10 @@ func New(h *handler.Handler, auth *middleware.Verifier, limiter middleware.RateL
 	mux.Handle("GET /api/v1/bookings/me/past", authn(http.HandlerFunc(h.ListPastBookings)))
 	mux.Handle("GET /api/v1/bookings/{reference}", authn(http.HandlerFunc(h.GetBooking)))
 
+	mux.Handle("POST /api/v1/chat/messages", authn(http.HandlerFunc(h.SendChatMessage)))
+	mux.Handle("POST /api/v1/chat/conversations/close", authn(http.HandlerFunc(h.CloseChatConversation)))
+	mux.Handle("GET /api/v1/chat/conversations", authn(http.HandlerFunc(h.ListChatConversations)))
+	mux.Handle("GET /api/v1/chat/conversations/{conversation_id}/messages", authn(http.HandlerFunc(h.GetChatMessages)))
+
 	return mux
 }

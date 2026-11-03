@@ -58,6 +58,21 @@ services:
       - key: BOOKING_SMTP_PASSWORD
         sync: false
 
+    # ── Chatbot (private, internal gRPC only) ──────────────────────────
+  - type: pserv
+    name: chatbot
+    runtime: go
+    plan: starter
+    buildCommand: go build -tags netgo -ldflags '-s -w' -o app ./code/chatbot
+    startCommand: ./app
+    envVars:
+      - key: ENV
+        value: production
+      - key: CHATBOT_POSTGRES_DSN
+        sync: false
+      - key: GEMINI_LLM_API_KEY
+        sync: false
+
   # ── API Gateway (public web service) ────────────────────────────────
   - type: web
     name: api-gateway

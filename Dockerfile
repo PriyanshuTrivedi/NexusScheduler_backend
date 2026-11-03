@@ -18,13 +18,17 @@ ENV PATH="/root/go/bin:${PATH}"
 
 RUN mkdir -p gen && protoc --proto_path=. \
     --go_out=paths=source_relative:gen --go-grpc_out=paths=source_relative:gen \
-    idl/resource/resource.proto idl/booking/booking.proto idl/identity/identity.proto
+    idl/resource/resource.proto \
+    idl/booking/booking.proto \
+    idl/identity/identity.proto \
+    idl/chatbot/chatbot.proto
 
 # Static binaries — no CGO, so the runtime stage can be a minimal image.
 ENV CGO_ENABLED=0
 RUN go build -tags netgo -ldflags '-s -w' -o /out/identity    ./code/identity
 RUN go build -tags netgo -ldflags '-s -w' -o /out/resource    ./code/resource
 RUN go build -tags netgo -ldflags '-s -w' -o /out/booking     ./code/booking
+RUN go build -tags netgo -ldflags '-s -w' -o /out/chatbot     ./code/chatbot
 RUN go build -tags netgo -ldflags '-s -w' -o /out/api-gateway ./code/api-gateway
 
 # ---- Runtime stage ----
@@ -38,14 +42,14 @@ WORKDIR /app
 COPY --from=builder /out/identity    /app/identity
 COPY --from=builder /out/resource    /app/resource
 COPY --from=builder /out/booking     /app/booking
+COPY --from=builder /out/chatbot     /app/chatbot
 COPY --from=builder /out/api-gateway /app/api-gateway
 
-# configloader reads code/<service>/config/<env>.yaml relative to the
-# working directory at runtime, so that folder layout has to exist in the
-# final image too — copy just the yaml configs, not the whole source tree.
+# Runtime configs
 COPY --from=builder /src/code/identity/config    /app/code/identity/config
 COPY --from=builder /src/code/resource/config    /app/code/resource/config
 COPY --from=builder /src/code/booking/config     /app/code/booking/config
+COPY --from=builder /src/code/chatbot/config     /app/code/chatbot/config
 COPY --from=builder /src/code/api-gateway/config /app/code/api-gateway/config
 
 COPY entrypoint.sh /app/entrypoint.sh

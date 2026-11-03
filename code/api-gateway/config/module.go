@@ -17,6 +17,7 @@ import (
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/api-gateway/middleware"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/api-gateway/router"
 	bookingpb "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/booking"
+	chatbotpb "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/chatbot"
 	identitypb "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/identity"
 	resourcepb "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/resource"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/pkg/configloader"
@@ -28,6 +29,7 @@ type Config struct {
 	IdentityGRPCAddr  string     `yaml:"identity_grpc_addr"`
 	ResourceGRPCAddr  string     `yaml:"resource_grpc_addr"`
 	BookingGRPCAddr   string     `yaml:"booking_grpc_addr"`
+	ChatbotGRPCAddr   string     `yaml:"chatbot_grpc_addr"`
 	RedisAddr         string     `yaml:"redis_addr"`
 	JWT               JWTConfig  `yaml:"jwt"`
 	RateLimit         int        `yaml:"rate_limit"`
@@ -83,6 +85,7 @@ type grpcClients struct {
 	identity client.IdentityClient
 	resource client.ResourceClient
 	booking  client.BookingClient
+	chatbot  client.ChatbotClient
 	conns    []*grpc.ClientConn
 }
 
@@ -102,20 +105,33 @@ func newClients(lc fx.Lifecycle, c Config) (grpcClients, error) {
 		_ = rConn.Close()
 		return grpcClients{}, err
 	}
+	cConn, err := grpc.NewClient(c.ChatbotGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		_ = iConn.Close()
+		_ = rConn.Close()
+		_ = bConn.Close()
+		return grpcClients{}, err
+	}
 	lc.Append(fx.Hook{OnStop: func(ctx context.Context) error {
 		var first error
-		for _, conn := range []*grpc.ClientConn{iConn, rConn, bConn} {
+		for _, conn := range []*grpc.ClientConn{iConn, rConn, bConn, cConn} {
 			if err := conn.Close(); err != nil && first == nil {
 				first = err
 			}
 		}
 		return first
 	}})
-	return grpcClients{identity: identitypb.NewIdentityServiceClient(iConn), resource: resourcepb.NewResourceServiceClient(rConn), booking: bookingpb.NewBookingServiceClient(bConn), conns: []*grpc.ClientConn{iConn, rConn, bConn}}, nil
+	return grpcClients{
+		identity: identitypb.NewIdentityServiceClient(iConn),
+		resource: resourcepb.NewResourceServiceClient(rConn),
+		booking:  bookingpb.NewBookingServiceClient(bConn),
+		chatbot:  chatbotpb.NewChatbotServiceClient(cConn),
+		conns:    []*grpc.ClientConn{iConn, rConn, bConn, cConn},
+	}, nil
 }
 
 func newHandler(c grpcClients, issuer *middleware.TokenIssuer) *handler.Handler {
-	return handler.New(c.identity, c.resource, c.booking, issuer)
+	return handler.New(c.identity, c.resource, c.booking, c.chatbot, issuer)
 }
 
 func newHTTPHandler(h *handler.Handler, v *middleware.Verifier, l middleware.RateLimiter, c Config) http.Handler {

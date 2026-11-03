@@ -4,6 +4,7 @@ go_library(
     name = "client",
     srcs = [
         "booking.go",
+        "chatbot.go",
         "identity.go",
         "resource.go",
     ],
@@ -11,6 +12,7 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//gen/idl/booking",
+        "//gen/idl/chatbot",
         "//gen/idl/identity",
         "//gen/idl/resource",
         "@org_golang_google_grpc//:grpc",

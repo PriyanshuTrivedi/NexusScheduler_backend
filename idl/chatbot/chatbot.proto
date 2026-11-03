@@ -1,0 +1,99 @@
+
+syntax = "proto3";
+
+package chatbot;
+
+option go_package = "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/chatbot";
+
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_USER        = 1;
+  ROLE_ASSISTANT   = 2;
+}
+
+enum ConversationStatus {
+  CONVERSATION_STATUS_UNSPECIFIED = 0;
+  CONVERSATION_STATUS_ACTIVE      = 1;
+  CONVERSATION_STATUS_CLOSED      = 2;
+}
+
+enum ConversationCloseReason {
+  CLOSE_REASON_UNSPECIFIED  = 0;
+  CLOSE_REASON_USER         = 1;
+  CLOSE_REASON_IDLE_TIMEOUT = 2;
+}
+
+message Message {
+  string message_id   = 1;
+  Role   role         = 2;
+  string content      = 3;
+  int64  created_unix = 4;
+}
+
+message SendMessageRequest {
+  string user_id                = 1;
+  string message                = 2;
+  string client_idempotency_key = 3;
+}
+
+message SendMessageResponse {
+  string  conversation_id     = 1;
+  Message user_message        = 2;
+  Message assistant_message   = 3;
+  bool    is_new_conversation = 4;
+}
+
+message CloseConversationRequest {
+  string user_id = 1;
+}
+
+message CloseConversationResponse {
+  string conversation_id = 1;
+  bool   closed          = 2;
+  int64  closed_unix     = 3;
+}
+
+message ListConversationsRequest {
+  string user_id = 1;
+  int32  limit   = 2;
+  int32  offset  = 3;
+}
+
+message Conversation {
+  string                           conversation_id      = 1;
+  string                           title                = 2;
+  string                           last_message_preview = 3;
+  ConversationStatus               status               = 4;
+  optional ConversationCloseReason close_reason         = 5;
+  int64                            created_unix         = 6;
+  //will be treated as closed time if status is closed, otherwise will be treated as last activity time
+  int64                            updated_unix         = 7;
+}
+
+message ListConversationsResponse {
+  repeated Conversation conversations   = 1;
+}
+
+message GetMessagesRequest {
+  string user_id = 1;
+  string conversation_id = 2;
+}
+
+message GetMessagesResponse {
+  repeated Message messages = 1;
+}
+
+service ChatbotService {
+  // Sends a message to the user's current active conversation.
+  // Creates a new conversation if one doesn't exist.
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+
+  // Closes the user's current active conversation.
+  rpc CloseConversation(CloseConversationRequest) returns (CloseConversationResponse);
+
+  // Lists the user's previous conversations, newest activity first.
+  rpc ListConversations(ListConversationsRequest) returns (ListConversationsResponse);
+
+  // Retrieves messages from a selected conversation.
+  rpc GetMessages(GetMessagesRequest) returns (GetMessagesResponse);
+}

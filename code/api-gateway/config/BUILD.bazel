@@ -12,6 +12,7 @@ go_library(
         "//code/api-gateway/middleware",
         "//code/api-gateway/router",
         "//gen/idl/booking",
+        "//gen/idl/chatbot",
         "//gen/idl/identity",
         "//gen/idl/resource",
         "//pkg/configloader",

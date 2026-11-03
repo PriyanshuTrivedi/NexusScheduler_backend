@@ -1,0 +1,9 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "client",
+    srcs = ["llm.go"],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/client",
+    visibility = ["//visibility:public"],
+    deps = ["//code/chatbot/entity"],
+)

@@ -18,7 +18,7 @@ run-%:
 	bazel run //code/$*:$*
 
 proto:
-	protoc --proto_path=. --go_out=paths=source_relative:gen --go-grpc_out=paths=source_relative:gen idl/resource/resource.proto idl/booking/booking.proto idl/identity/identity.proto
+	protoc --proto_path=. --go_out=paths=source_relative:gen --go-grpc_out=paths=source_relative:gen idl/resource/resource.proto idl/booking/booking.proto idl/identity/identity.proto idl/chatbot/chatbot.proto
 
 mocks:
 	go generate ./...

@@ -1,0 +1,13 @@
+env: production
+grpc_port: 9005
+log_level: warn
+
+postgres:
+  max_conns: 25
+  min_conns: 5
+  conn_max_lifetime_minutes: 60
+
+gemini:
+  model: gemini-3.5-flash-lite
+  max_retries: 3
+  retry_base_delay_ms: 250

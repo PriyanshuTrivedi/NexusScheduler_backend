@@ -19,6 +19,7 @@ use_repo(
     "com_github_golang_jwt_jwt_v5",
     "com_github_golang_mock",
     "com_github_jackc_pgx_v5",
+    "com_github_modelcontextprotocol_go_sdk",
     "com_github_redis_go_redis_v9",
     "com_github_rs_cors",
     "com_github_stretchr_testify",

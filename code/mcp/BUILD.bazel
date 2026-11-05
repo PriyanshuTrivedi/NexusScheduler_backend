@@ -1,0 +1,25 @@
+load("@rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "mcp_lib",
+    srcs = [
+        "main.go",
+        "server.go",
+    ],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/mcp",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//code/mcp/client",
+        "//code/mcp/config",
+        "//code/mcp/entity",
+        "//code/mcp/internal/tools",
+        "@com_github_modelcontextprotocol_go_sdk//mcp",
+        "@org_uber_go_fx//:fx",
+    ],
+)
+
+go_binary(
+    name = "mcp",
+    embed = [":mcp_lib"],
+    visibility = ["//visibility:public"],
+)

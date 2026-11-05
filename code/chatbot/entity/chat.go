@@ -7,6 +7,7 @@ type Role string
 const (
 	RoleUser      Role = "USER"
 	RoleAssistant Role = "ASSISTANT"
+	RoleTool      Role = "TOOL"
 )
 
 type ConversationStatus string

@@ -8,6 +8,7 @@ go_library(
     deps = [
         "//code/chatbot/client",
         "//code/chatbot/entity",
+        "//code/chatbot/prompt",
         "//code/chatbot/store",
         "//code/chatbot/util",
         "@org_golang_google_genai//:genai",
@@ -25,6 +26,7 @@ go_test(
         "//gen/mocks/chatbot/store",
         "@com_github_golang_mock//gomock",
         "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
         "@org_golang_google_genai//:genai",
     ],
 )

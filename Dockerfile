@@ -14,6 +14,7 @@ COPY . .
 
 RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.10 \
     && go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
 ENV PATH="/root/go/bin:${PATH}"
 
 RUN mkdir -p gen && protoc --proto_path=. \
@@ -23,12 +24,15 @@ RUN mkdir -p gen && protoc --proto_path=. \
     idl/identity/identity.proto \
     idl/chatbot/chatbot.proto
 
-# Static binaries — no CGO, so the runtime stage can be a minimal image.
+# Static binaries — no CGO, so the runtime stage can use a minimal image.
 ENV CGO_ENABLED=0
+
 RUN go build -tags netgo -ldflags '-s -w' -o /out/identity    ./code/identity
 RUN go build -tags netgo -ldflags '-s -w' -o /out/resource    ./code/resource
 RUN go build -tags netgo -ldflags '-s -w' -o /out/booking     ./code/booking
 RUN go build -tags netgo -ldflags '-s -w' -o /out/chatbot     ./code/chatbot
+
+# API Gateway includes the MCP server module and /mcp handler.
 RUN go build -tags netgo -ldflags '-s -w' -o /out/api-gateway ./code/api-gateway
 
 # ---- Runtime stage ----
@@ -56,9 +60,8 @@ COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 ENV ENV=production
-# api-gateway's yaml already hardcodes http_port: 8080 — tell HF Spaces to
-# route its single public port there (set app_port: 8080 in the Space
-# README frontmatter) instead of changing this.
+
+# API Gateway serves both REST and MCP on the same HTTP listener.
 EXPOSE 8080
 
 ENTRYPOINT ["/app/entrypoint.sh"]

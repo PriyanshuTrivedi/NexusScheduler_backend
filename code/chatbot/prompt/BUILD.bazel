@@ -1,0 +1,9 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "prompt",
+    srcs = ["prompt.go"],
+    embedsrcs = ["system.md"],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/prompt",
+    visibility = ["//visibility:public"],
+)

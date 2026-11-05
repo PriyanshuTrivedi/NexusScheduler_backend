@@ -58,7 +58,7 @@ services:
       - key: BOOKING_SMTP_PASSWORD
         sync: false
 
-    # ── Chatbot (private, internal gRPC only) ──────────────────────────
+  # ── Chatbot (private, internal gRPC only) ──────────────────────────
   - type: pserv
     name: chatbot
     runtime: go
@@ -72,8 +72,10 @@ services:
         sync: false
       - key: GEMINI_LLM_API_KEY
         sync: false
+      - key: MCP_SERVER_URL
+        sync: false
 
-  # ── API Gateway (public web service) ────────────────────────────────
+  # ── API Gateway + MCP (public web service) ──────────────────────────
   - type: web
     name: api-gateway
     runtime: go
@@ -90,20 +92,24 @@ services:
           name: nexus-redis
           type: keyvalue
           property: connectionString
+
       - key: IDENTITY_GRPC_ADDR
         fromService:
           name: identity
           type: pserv
           property: hostport
+
       - key: RESOURCE_GRPC_ADDR
         fromService:
           name: resource
           type: pserv
           property: hostport
+
       - key: BOOKING_GRPC_ADDR
         fromService:
           name: booking
           type: pserv
           property: hostport
-      # PORT is injected automatically by Render on Web Services —
-      # your code change already reads it as a fallback for http_port
+
+      - key: API_GATEWAY_BASE_URL
+        sync: false

@@ -2,7 +2,11 @@ load("@rules_go//go:def.bzl", "go_library")
 
 go_library(
     name = "entity",
-    srcs = ["chat.go"],
+    srcs = [
+        "chat.go",
+        "llm.go",
+        "mcp.go",
+    ],
     importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/entity",
     visibility = ["//visibility:public"],
 )

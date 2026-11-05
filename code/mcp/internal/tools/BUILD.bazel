@@ -1,0 +1,17 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "tools",
+    srcs = [
+        "booking.go",
+        "resource.go",
+    ],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/mcp/internal/tools",
+    visibility = ["//code/mcp:__subpackages__"],
+    deps = [
+        "//code/mcp/client",
+        "//code/mcp/entity",
+        "//code/mcp/util",
+        "@com_github_modelcontextprotocol_go_sdk//mcp",
+    ],
+)

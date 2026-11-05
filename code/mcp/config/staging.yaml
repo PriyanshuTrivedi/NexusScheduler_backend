@@ -1,0 +1,8 @@
+env: development
+
+http_port: 9006
+listen_host: 0.0.0.0
+
+api_gateway_base_url: https://nexusscheduler-backend.onrender.com
+
+request_timeout_seconds: 12

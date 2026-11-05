@@ -11,3 +11,9 @@ gemini:
   model: gemini-3.5-flash-lite
   max_retries: 3
   retry_base_delay_ms: 250
+
+mcp:
+  server_url: https://nexusscheduler-backend.onrender.com/mcp
+  client:
+    name: nexus-scheduler-chatbot
+    version: 1.0.0

@@ -1,0 +1,9 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "client",
+    srcs = ["api_gateway.go"],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/mcp/client",
+    visibility = ["//visibility:public"],
+    deps = ["//code/mcp/entity"],
+)

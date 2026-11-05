@@ -16,7 +16,7 @@ go_library(
         "//pkg/configloader",
         "//pkg/grpcserver",
         "@com_github_jackc_pgx_v5//pgxpool",
-        "@org_golang_google_genai//:genai",
+        "@com_github_modelcontextprotocol_go_sdk//mcp",
         "@org_golang_google_grpc//:grpc",
         "@org_uber_go_fx//:fx",
     ],

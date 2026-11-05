@@ -1,0 +1,14 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "config",
+    srcs = ["module.go"],
+    data = glob(["*.yaml"]),
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/mcp/config",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//code/mcp/client",
+        "//pkg/configloader",
+        "@org_uber_go_fx//:fx",
+    ],
+)

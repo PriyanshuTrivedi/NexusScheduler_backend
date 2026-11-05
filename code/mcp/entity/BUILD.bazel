@@ -1,0 +1,13 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "entity",
+    srcs = [
+        "booking.go",
+        "identity.go",
+        "resource.go",
+        "tool.go",
+    ],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/mcp/entity",
+    visibility = ["//visibility:public"],
+)

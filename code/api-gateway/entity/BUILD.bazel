@@ -1,0 +1,8 @@
+load("@rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "entity",
+    srcs = ["chat_tool.go"],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/api-gateway/entity",
+    visibility = ["//visibility:public"],
+)

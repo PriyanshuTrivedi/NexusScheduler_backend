@@ -1,0 +1,22 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "util",
+    srcs = [
+        "booking.go",
+        "resource.go",
+    ],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/mcp/util",
+    visibility = ["//visibility:public"],
+    deps = ["//code/mcp/entity"],
+)
+
+go_test(
+    name = "util_test",
+    srcs = [
+        "booking_test.go",
+        "resource_test.go",
+    ],
+    embed = [":util"],
+    deps = ["//code/mcp/entity"],
+)

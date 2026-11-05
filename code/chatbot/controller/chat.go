@@ -2,13 +2,16 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/client"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/entity"
+	"github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/prompt"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/store"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/util"
 	"google.golang.org/genai"
@@ -17,9 +20,10 @@ import (
 //go:generate mockgen -source=chat.go -destination=../../../gen/mocks/chatbot/controller/chat_mock.go -package=mocks
 
 const (
-	idleTimeout  = 5 * time.Minute
-	defaultLimit = 20
-	maxLimit     = 100
+	conversationIdleTimeout      = 5 * time.Minute
+	defaultConversationListLimit = 20
+	maxConversationListLimit     = 100
+	maxLLMToolExecutionRounds    = 10
 )
 
 type Controller interface {
@@ -37,13 +41,15 @@ type RetryConfig struct {
 type controller struct {
 	store       store.Store
 	llm         client.LLM
+	mcp         client.MCPClient
 	retryConfig RetryConfig
 }
 
-func New(st store.Store, llm client.LLM, retryConfig RetryConfig) Controller {
+func New(st store.Store, llm client.LLM, mcp client.MCPClient, retryConfig RetryConfig) Controller {
 	return &controller{
 		store:       st,
 		llm:         llm,
+		mcp:         mcp,
 		retryConfig: retryConfig,
 	}
 }
@@ -60,7 +66,7 @@ func (c *controller) SendMessage(ctx context.Context, req *entity.SendMessageReq
 
 	isNewConversation := false
 
-	if conversation != nil && time.Since(conversation.UpdatedAt) >= idleTimeout {
+	if conversation != nil && time.Since(conversation.UpdatedAt) >= conversationIdleTimeout {
 		_, err = c.store.CloseActiveConversation(ctx, req.UserID, entity.CloseReasonIdleTimeout)
 		if err != nil {
 			return nil, fmt.Errorf("controller: close idle conversation: %w", err)
@@ -92,7 +98,7 @@ func (c *controller) SendMessage(ctx context.Context, req *entity.SendMessageReq
 	}
 	history = append(history, userMessage)
 
-	reply, err := c.generateReplyWithRetry(ctx, history)
+	reply, err := c.generateReplyWithTools(ctx, history)
 	if err != nil {
 		return nil, fmt.Errorf("controller: generate reply: %w", err)
 	}
@@ -133,23 +139,102 @@ func (c *controller) SendMessage(ctx context.Context, req *entity.SendMessageReq
 	}, nil
 }
 
-func (c *controller) generateReplyWithRetry(ctx context.Context, history []entity.Message) (string, error) {
+func (c *controller) generateReplyWithTools(ctx context.Context, history []entity.Message) (string, error) {
+	tools, err := c.mcp.ListTools(ctx)
+	if err != nil {
+		return "", fmt.Errorf("list MCP tools: %w", err)
+	}
+
+	messages := make([]entity.LLMMessage, 0, len(history)+maxLLMToolExecutionRounds*2)
+
+	for _, message := range history {
+		role := strings.ToLower(string(message.Role))
+		if role == "assistant" {
+			role = "model"
+		}
+		messages = append(messages, entity.LLMMessage{
+			Role:    role,
+			Content: message.Content,
+		})
+	}
+
+	for toolRound := 0; ; toolRound++ {
+		response, err := c.generateResponseWithRetry(ctx, entity.LLMRequest{
+			Messages:          messages,
+			Tools:             tools,
+			SystemInstruction: prompt.SystemInstruction,
+		})
+		if err != nil {
+			return "", fmt.Errorf("generate LLM response: %w", err)
+		}
+
+		if len(response.FunctionCalls) == 0 {
+			return response.Text, nil
+		}
+
+		if toolRound >= maxLLMToolExecutionRounds {
+			return "", fmt.Errorf("maximum tool-call toolRounds (%d) exceeded", maxLLMToolExecutionRounds)
+		}
+
+		// Preserve Gemini's function-call message in the conversation.
+		messages = append(messages, entity.LLMMessage{
+			Role:          "model",
+			Content:       response.Text,
+			FunctionCalls: response.FunctionCalls,
+		})
+
+		functionResponses := make([]entity.FunctionResponse, 0, len(response.FunctionCalls))
+
+		for _, call := range response.FunctionCalls {
+			result, err := c.mcp.CallTool(ctx, call.Name, call.Arguments)
+
+			var toolResponse map[string]any
+
+			if err != nil {
+				toolResponse = map[string]any{
+					"error": err.Error(),
+				}
+			} else {
+				toolResponse, err = toResponseMap(result)
+				if err != nil {
+					toolResponse = map[string]any{
+						"error": fmt.Sprintf("serialize tool result: %v", err),
+					}
+				}
+			}
+
+			functionResponses = append(functionResponses, entity.FunctionResponse{
+				ID:       call.ID,
+				Name:     call.Name,
+				Response: toolResponse,
+			})
+		}
+
+		// Gemini expects function responses in a user-role message.
+		messages = append(messages, entity.LLMMessage{
+			Role:              "user",
+			FunctionResponses: functionResponses,
+		})
+	}
+}
+
+func (c *controller) generateResponseWithRetry(ctx context.Context, request entity.LLMRequest) (*entity.LLMResponse, error) {
 	var err error
 
 	for attempt := 0; attempt <= c.retryConfig.MaxRetries; attempt++ {
 		if err := ctx.Err(); err != nil {
-			return "", err
+			return nil, err
 		}
 
-		var reply string
-		reply, err = c.llm.GenerateReply(ctx, history)
+		var response *entity.LLMResponse
+		response, err = c.llm.GenerateResponse(ctx, request)
 		if err == nil {
-			return reply, nil
+			return response, nil
 		}
 
 		var apiErr genai.APIError
 		if !errors.As(err, &apiErr) || apiErr.Code < 500 || apiErr.Code > 599 {
-			return "", err
+			return nil, err
 		}
 
 		if attempt == c.retryConfig.MaxRetries {
@@ -163,12 +248,34 @@ func (c *controller) generateReplyWithRetry(ctx context.Context, history []entit
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return "", ctx.Err()
+			return nil, ctx.Err()
 		case <-timer.C:
 		}
 	}
 
-	return "", err
+	return nil, err
+}
+
+func toResponseMap(value any) (map[string]any, error) {
+	if value == nil {
+		return map[string]any{}, nil
+	}
+
+	if result, ok := value.(map[string]any); ok {
+		return result, nil
+	}
+
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }
 
 func (c *controller) CloseConversation(ctx context.Context, req *entity.CloseConversationRequest) (*entity.CloseConversationResponse, error) {
@@ -185,7 +292,7 @@ func (c *controller) CloseConversation(ctx context.Context, req *entity.CloseCon
 	}
 
 	reason := entity.CloseReasonUser
-	if time.Since(conversation.UpdatedAt) >= idleTimeout {
+	if time.Since(conversation.UpdatedAt) >= conversationIdleTimeout {
 		reason = entity.CloseReasonIdleTimeout
 	}
 
@@ -215,10 +322,10 @@ func (c *controller) ListConversations(ctx context.Context, req *entity.ListConv
 
 	limit := req.Limit
 	if limit <= 0 {
-		limit = defaultLimit
+		limit = defaultConversationListLimit
 	}
-	if limit > maxLimit {
-		limit = maxLimit
+	if limit > maxConversationListLimit {
+		limit = maxConversationListLimit
 	}
 
 	conversations, err := c.store.ListConversations(

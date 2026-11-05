@@ -71,5 +71,8 @@ func New(h *handler.Handler, auth *middleware.Verifier, limiter middleware.RateL
 	mux.Handle("GET /api/v1/chat/conversations", authn(http.HandlerFunc(h.ListChatConversations)))
 	mux.Handle("GET /api/v1/chat/conversations/{conversation_id}/messages", authn(http.HandlerFunc(h.GetChatMessages)))
 
+	// Internal endpoint used by the MCP server.
+	mux.Handle("POST /internal/v1/chat/tools/execute", public(http.HandlerFunc(h.ExecuteChatTool)))
+
 	return mux
 }

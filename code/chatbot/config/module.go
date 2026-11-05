@@ -7,7 +7,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.uber.org/fx"
-	"google.golang.org/genai"
 	"google.golang.org/grpc"
 
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/client"
@@ -18,6 +17,7 @@ import (
 	chatbotpb "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/chatbot"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/pkg/configloader"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/pkg/grpcserver"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 type GeminiLLMConfig struct {
@@ -26,9 +26,20 @@ type GeminiLLMConfig struct {
 	RetryBaseDelayMs int    `yaml:"retry_base_delay_ms"`
 }
 
+type MCPClientConfig struct {
+	Name    string `yaml:"name"`
+	Version string `yaml:"version"`
+}
+
+type MCPConfig struct {
+	Endpoint string          `yaml:"server_url"`
+	Client   MCPClientConfig `yaml:"client"`
+}
+
 type Config struct {
 	GRPCPort     int             `yaml:"grpc_port"`
 	Env          string          `yaml:"env"`
+	MCPConfig    MCPConfig       `yaml:"mcp"`
 	GeminiConfig GeminiLLMConfig `yaml:"gemini"`
 }
 
@@ -49,6 +60,16 @@ func loadConfig() (Config, error) {
 		cfg.GeminiConfig.RetryBaseDelayMs = 250
 	}
 
+	if cfg.MCPConfig.Endpoint == "" {
+		cfg.MCPConfig.Endpoint = configloader.MustGetEnv("MCP_SERVER_URL")
+	}
+	if cfg.MCPConfig.Client.Name == "" {
+		return Config{}, fmt.Errorf("chatbot: mcp client name is required")
+	}
+	if cfg.MCPConfig.Client.Version == "" {
+		return Config{}, fmt.Errorf("chatbot: mcp client verison is required")
+	}
+
 	return cfg, nil
 }
 
@@ -63,22 +84,29 @@ func newPostgresPool() (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-func newGeminiClient() (*genai.Client, error) {
+func newLLM(cfg Config) (client.LLM, error) {
 	apiKey := configloader.MustGetEnv("GEMINI_LLM_API_KEY")
 
-	geminiClient, err := genai.NewClient(context.Background(), &genai.ClientConfig{
-		APIKey:  apiKey,
-		Backend: genai.BackendGeminiAPI,
-	})
+	llm, err := llmclients.NewGeminiClient(
+		context.Background(),
+		apiKey,
+		cfg.GeminiConfig.Model,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("chatbot: initialize gemini client: %w", err)
+		return nil, fmt.Errorf("chatbot: initialize Gemini client: %w", err)
 	}
 
-	return geminiClient, nil
+	return llm, nil
 }
 
-func newLLM(geminiClient *genai.Client, cfg Config) client.LLM {
-	return llmclients.NewGeminiLLM(geminiClient, cfg.GeminiConfig.Model)
+func newMCPClient(cfg Config) client.MCPClient {
+	return client.NewMCPClient(cfg.MCPConfig.Endpoint, mcp.NewClient(
+		&mcp.Implementation{
+			Name:    cfg.MCPConfig.Client.Name,
+			Version: cfg.MCPConfig.Client.Version,
+		},
+		nil,
+	))
 }
 
 func grpcServerConfig(cfg Config) grpcserver.Config {
@@ -91,8 +119,8 @@ func registerHandler(server *grpc.Server, h *handler.Handler) {
 	chatbotpb.RegisterChatbotServiceServer(server, h)
 }
 
-func newController(st store.Store, llm client.LLM, cfg Config) controller.Controller {
-	return controller.New(st, llm, controller.RetryConfig{
+func newController(st store.Store, llm client.LLM, mcp client.MCPClient, cfg Config) controller.Controller {
+	return controller.New(st, llm, mcp, controller.RetryConfig{
 		MaxRetries: cfg.GeminiConfig.MaxRetries,
 		BaseDelay:  time.Duration(cfg.GeminiConfig.RetryBaseDelayMs) * time.Millisecond,
 	})
@@ -102,8 +130,8 @@ var Module = fx.Options(
 	fx.Provide(loadConfig),
 	fx.Provide(newPostgresPool),
 	fx.Provide(store.New),
-	fx.Provide(newGeminiClient),
 	fx.Provide(newLLM),
+	fx.Provide(newMCPClient),
 	fx.Provide(newController),
 	fx.Provide(handler.New),
 	fx.Provide(grpcServerConfig),

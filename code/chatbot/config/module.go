@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -60,8 +61,9 @@ func loadConfig() (Config, error) {
 		cfg.GeminiConfig.RetryBaseDelayMs = 250
 	}
 
-	if cfg.MCPConfig.Endpoint == "" {
-		cfg.MCPConfig.Endpoint = configloader.MustGetEnv("MCP_SERVER_URL")
+	mcp_server_url := os.Getenv("MCP_SERVER_URL")
+	if mcp_server_url != "" {
+		cfg.MCPConfig.Endpoint = mcp_server_url
 	}
 	if cfg.MCPConfig.Client.Name == "" {
 		return Config{}, fmt.Errorf("chatbot: mcp client name is required")

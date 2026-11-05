@@ -1,30 +1,37 @@
 services:
-  # ── Redis (Key Value) ──────────────────────────────────────────────
+  # ── Redis ──────────────────────────────────────────────────────────
   - type: keyvalue
     name: nexus-redis
     plan: starter
-    ipAllowList: []   # empty = only accessible from other Render services
+    ipAllowList: []
 
-  # ── Identity (private, internal gRPC only) ─────────────────────────
+  # ── Identity ──────────────────────────────────────────────────────
   - type: pserv
     name: identity
-    runtime: go
+    runtime: docker
     plan: starter
-    buildCommand: go build -tags netgo -ldflags '-s -w' -o app ./code/identity
-    startCommand: ./app
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: identity
     envVars:
       - key: ENV
         value: production
       - key: IDENTITY_POSTGRES_DSN
-        sync: false   # paste the Supabase Session Pooler DSN manually in the dashboard
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          name: nexus-redis
+          type: keyvalue
+          property: connectionString
 
-  # ── Resource (private, internal gRPC only) ─────────────────────────
+  # ── Resource ──────────────────────────────────────────────────────
   - type: pserv
     name: resource
-    runtime: go
+    runtime: docker
     plan: starter
-    buildCommand: go build -tags netgo -ldflags '-s -w' -o app ./code/resource
-    startCommand: ./app
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: resource
     envVars:
       - key: ENV
         value: production
@@ -32,39 +39,41 @@ services:
         sync: false
       - key: RESOURCE_POSTGRES_DSN
         sync: false
-      - key: REDIS_ADDR
+      - key: REDIS_URL
         fromService:
           name: nexus-redis
           type: keyvalue
           property: connectionString
 
-  # ── Booking (private, internal gRPC only) ───────────────────────────
+  # ── Booking ───────────────────────────────────────────────────────
   - type: pserv
     name: booking
-    runtime: go
+    runtime: docker
     plan: starter
-    buildCommand: go build -tags netgo -ldflags '-s -w' -o app ./code/booking
-    startCommand: ./app
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: booking
     envVars:
       - key: ENV
         value: production
       - key: BOOKING_POSTGRES_DSN
         sync: false
-      - key: REDIS_ADDR
+      - key: REDIS_URL
         fromService:
           name: nexus-redis
           type: keyvalue
           property: connectionString
-      - key: BOOKING_SMTP_PASSWORD
+      - key: RISU_API_KEY
         sync: false
 
-  # ── Chatbot (private, internal gRPC only) ──────────────────────────
+  # ── Chatbot ────────────────────────────────────────────────────────
   - type: pserv
     name: chatbot
-    runtime: go
+    runtime: docker
     plan: starter
-    buildCommand: go build -tags netgo -ldflags '-s -w' -o app ./code/chatbot
-    startCommand: ./app
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: chatbot
     envVars:
       - key: ENV
         value: production
@@ -72,22 +81,47 @@ services:
         sync: false
       - key: GEMINI_LLM_API_KEY
         sync: false
-      - key: MCP_SERVER_URL
-        sync: false
+      - key: MCP_SERVER_HOST
+        fromService:
+          name: nexus-mcp
+          type: pserv
+          property: hostport
 
-  # ── API Gateway + MCP (public web service) ──────────────────────────
-  - type: web
-    name: api-gateway
-    runtime: go
+  # ── MCP Server ────────────────────────────────────────────────────
+  - type: pserv
+    name: nexus-mcp
+    runtime: docker
     plan: starter
-    buildCommand: go build -tags netgo -ldflags '-s -w' -o app ./code/api-gateway
-    startCommand: ./app
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: mcp
     envVars:
       - key: ENV
         value: production
+      - key: MCP_HTTP_PORT
+        value: "9006"
+      - key: API_GATEWAY_HOST
+        fromService:
+          name: api-gateway
+          type: web
+          property: hostport
+
+  # ── API Gateway ────────────────────────────────────────────────────
+  - type: web
+    name: api-gateway
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: api-gateway
+    envVars:
+      - key: ENV
+        value: production
+      - key: PORT
+        value: "10000"
       - key: API_GATEWAY_JWT_SECRET
-        generateValue: true   # let Render generate a real production secret
-      - key: REDIS_ADDR
+        generateValue: true
+      - key: REDIS_URL
         fromService:
           name: nexus-redis
           type: keyvalue
@@ -111,5 +145,8 @@ services:
           type: pserv
           property: hostport
 
-      - key: API_GATEWAY_BASE_URL
-        sync: false
+      - key: CHATBOT_GRPC_ADDR
+        fromService:
+          name: chatbot
+          type: pserv
+          property: hostport

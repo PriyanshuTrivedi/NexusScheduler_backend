@@ -1,11 +1,11 @@
 services:
-  # ── Redis ──────────────────────────────────────────────────────────
+  # ── Redis (Key Value) ──────────────────────────────────────────────
   - type: keyvalue
     name: nexus-redis
     plan: starter
-    ipAllowList: []
+    ipAllowList: []   # empty = only accessible from other Render services
 
-  # ── Identity (private gRPC) ────────────────────────────────────────
+  # ── Identity (private, internal gRPC only) ─────────────────────────
   - type: pserv
     name: identity
     runtime: go
@@ -16,14 +16,9 @@ services:
       - key: ENV
         value: production
       - key: IDENTITY_POSTGRES_DSN
-        sync: false
-      - key: REDIS_URL
-        fromService:
-          name: nexus-redis
-          type: keyvalue
-          property: connectionString
+        sync: false   # paste the Supabase Session Pooler DSN manually in the dashboard
 
-  # ── Resource (private gRPC) ────────────────────────────────────────
+  # ── Resource (private, internal gRPC only) ─────────────────────────
   - type: pserv
     name: resource
     runtime: go
@@ -37,13 +32,13 @@ services:
         sync: false
       - key: RESOURCE_POSTGRES_DSN
         sync: false
-      - key: REDIS_URL
+      - key: REDIS_ADDR
         fromService:
           name: nexus-redis
           type: keyvalue
           property: connectionString
 
-  # ── Booking (private gRPC) ─────────────────────────────────────────
+  # ── Booking (private, internal gRPC only) ───────────────────────────
   - type: pserv
     name: booking
     runtime: go
@@ -55,15 +50,15 @@ services:
         value: production
       - key: BOOKING_POSTGRES_DSN
         sync: false
-      - key: REDIS_URL
+      - key: REDIS_ADDR
         fromService:
           name: nexus-redis
           type: keyvalue
           property: connectionString
-      - key: RISU_API_KEY
+      - key: BOOKING_SMTP_PASSWORD
         sync: false
 
-  # ── Chatbot (private gRPC + MCP client) ─────────────────────────────
+  # ── Chatbot (private, internal gRPC only) ──────────────────────────
   - type: pserv
     name: chatbot
     runtime: go
@@ -80,22 +75,7 @@ services:
       - key: MCP_SERVER_URL
         sync: false
 
-  # ── MCP Server (private HTTP) ──────────────────────────────────────
-  - type: pserv
-    name: nexus-mcp
-    runtime: go
-    plan: starter
-    buildCommand: go build -tags netgo -ldflags '-s -w' -o app ./code/mcp
-    startCommand: ./app
-    envVars:
-      - key: ENV
-        value: production
-      - key: MCP_HTTP_PORT
-        value: "9006"
-      - key: API_GATEWAY_BASE_URL
-        sync: false
-
-  # ── API Gateway (public REST HTTP) ──────────────────────────────────
+  # ── API Gateway + MCP (public web service) ──────────────────────────
   - type: web
     name: api-gateway
     runtime: go
@@ -106,16 +86,13 @@ services:
       - key: ENV
         value: production
       - key: API_GATEWAY_JWT_SECRET
-        generateValue: true
-
-      # Redis
-      - key: REDIS_URL
+        generateValue: true   # let Render generate a real production secret
+      - key: REDIS_ADDR
         fromService:
           name: nexus-redis
           type: keyvalue
           property: connectionString
 
-      # Internal gRPC service addresses
       - key: IDENTITY_GRPC_ADDR
         fromService:
           name: identity
@@ -134,8 +111,5 @@ services:
           type: pserv
           property: hostport
 
-      - key: CHATBOT_GRPC_ADDR
-        fromService:
-          name: chatbot
-          type: pserv
-          property: hostport
+      - key: API_GATEWAY_BASE_URL
+        sync: false

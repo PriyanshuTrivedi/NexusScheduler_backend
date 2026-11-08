@@ -4,7 +4,10 @@ go_library(
     name = "util",
     srcs = [
         "chat.go",
+        "document.go",
         "llm.go",
+        "pdfconverter.go",
+        "pinecone.go",
     ],
     importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/util",
     visibility = ["//visibility:public"],
@@ -12,6 +15,7 @@ go_library(
         "//code/chatbot/entity",
         "//code/chatbot/store",
         "//gen/idl/chatbot",
+        "@com_github_ledongthuc_pdf//:pdf",
         "@org_golang_google_genai//:genai",
         "@org_golang_google_grpc//codes",
         "@org_golang_google_grpc//status",
@@ -22,7 +26,10 @@ go_test(
     name = "util_test",
     srcs = [
         "chat_test.go",
+        "document_test.go",
         "llm_test.go",
+        "pdfconverter_test.go",
+        "pinecone_test.go",
     ],
     embed = [":util"],
     deps = [
@@ -30,6 +37,7 @@ go_test(
         "//code/chatbot/store",
         "//gen/idl/chatbot",
         "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
         "@org_golang_google_genai//:genai",
         "@org_golang_google_grpc//codes",
         "@org_golang_google_grpc//status",

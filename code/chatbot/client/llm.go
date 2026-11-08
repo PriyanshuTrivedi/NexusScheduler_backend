@@ -11,4 +11,5 @@ import (
 // LLM defines the contract that every LLM provider must implement.
 type LLM interface {
 	GenerateResponse(ctx context.Context, request entity.LLMRequest) (*entity.LLMResponse, error)
+	GenerateEmbeddings(ctx context.Context, chunks []string) ([]entity.Embedding, error)
 }

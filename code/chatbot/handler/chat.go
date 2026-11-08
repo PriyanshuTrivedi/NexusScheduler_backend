@@ -67,3 +67,27 @@ func (h *Handler) GetMessages(ctx context.Context, req *chatbotpb.GetMessagesReq
 
 	return util.GetMessagesResponseToProto(entityResp), nil
 }
+
+func (h *Handler) IndexDocument(ctx context.Context, req *chatbotpb.IndexDocumentRequest) (*chatbotpb.IndexDocumentResponse, error) {
+	entityReq := util.IndexDocumentRequestFromProto(req)
+
+	entityResp, err := h.ctl.IndexDocuments(ctx, entityReq)
+	if err != nil {
+		fmt.Printf("IndexDocument error: %v\n", err)
+		return nil, util.ErrorToGRPC(err)
+	}
+
+	return util.IndexDocumentResponseToProto(entityResp), nil
+}
+
+func (h *Handler) DeleteDocumentIndex(ctx context.Context, req *chatbotpb.DeleteDocumentIndexRequest) (*chatbotpb.DeleteDocumentIndexResponse, error) {
+	entityReq := util.DeleteDocumentIndexRequestFromProto(req)
+
+	entityResp, err := h.ctl.DeleteDocumentIndex(ctx, entityReq)
+	if err != nil {
+		fmt.Printf("DeleteDocumentIndex error: %v\n", err)
+		return nil, util.ErrorToGRPC(err)
+	}
+
+	return util.DeleteDocumentIndexResponseToProto(entityResp), nil
+}

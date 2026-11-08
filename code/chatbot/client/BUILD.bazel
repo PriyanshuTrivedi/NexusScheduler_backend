@@ -5,21 +5,27 @@ go_library(
     srcs = [
         "llm.go",
         "mcp.go",
+        "pinecone.go",
     ],
     importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/client",
     visibility = ["//visibility:public"],
     deps = [
         "//code/chatbot/entity",
         "@com_github_modelcontextprotocol_go_sdk//mcp",
+        "@com_github_pinecone_io_go_pinecone_v7//pinecone",
         "@org_golang_google_grpc//metadata",
     ],
 )
 
 go_test(
     name = "client_test",
-    srcs = ["mcp_test.go"],
+    srcs = [
+        "mcp_test.go",
+        "pinecone_test.go",
+    ],
     embed = [":client"],
     deps = [
+        "//code/chatbot/entity",
         "@com_github_modelcontextprotocol_go_sdk//mcp",
         "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",

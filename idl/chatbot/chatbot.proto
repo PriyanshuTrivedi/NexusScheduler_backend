@@ -23,6 +23,11 @@ enum ConversationCloseReason {
   CLOSE_REASON_IDLE_TIMEOUT = 2;
 }
 
+enum DocumentType {
+  DOCUMENT_TYPE_UNSPECIFIED = 0;
+  DOCUMENT_TYPE_PDF         = 1;
+}
+
 message Message {
   string message_id   = 1;
   Role   role         = 2;
@@ -67,20 +72,42 @@ message Conversation {
   optional ConversationCloseReason close_reason         = 5;
   int64                            created_unix         = 6;
   //will be treated as closed time if status is closed, otherwise will be treated as last activity time
-  int64                            updated_unix         = 7;
+  int64 updated_unix = 7;
 }
 
 message ListConversationsResponse {
-  repeated Conversation conversations   = 1;
+  repeated Conversation conversations = 1;
 }
 
 message GetMessagesRequest {
-  string user_id = 1;
+  string user_id         = 1;
   string conversation_id = 2;
 }
 
 message GetMessagesResponse {
   repeated Message messages = 1;
+}
+
+message IndexDocumentRequest {
+  string       object_id       = 1;
+  string       owner_user_id   = 2;
+  string       idempotency_key = 3;
+  DocumentType document_type   = 4;
+  bytes        content         = 5;
+}
+
+message IndexDocumentResponse {
+  bool  indexed         = 1;
+  int32 chunks_upserted = 2;
+}
+
+message DeleteDocumentIndexRequest {
+  string object_id     = 1;
+  string owner_user_id = 2;
+}
+
+message DeleteDocumentIndexResponse {
+  bool deleted = 1;
 }
 
 service ChatbotService {
@@ -96,4 +123,7 @@ service ChatbotService {
 
   // Retrieves messages from a selected conversation.
   rpc GetMessages(GetMessagesRequest) returns (GetMessagesResponse);
+
+  rpc IndexDocument(IndexDocumentRequest) returns (IndexDocumentResponse);
+  rpc DeleteDocumentIndex(DeleteDocumentIndexRequest) returns (DeleteDocumentIndexResponse);
 }

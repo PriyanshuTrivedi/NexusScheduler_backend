@@ -1,0 +1,16 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "techniques",
+    srcs = ["fixed_size.go"],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/chunker/techniques",
+    visibility = ["//visibility:public"],
+    deps = ["@com_github_tiktoken_go_tokenizer//:tokenizer"],
+)
+
+go_test(
+    name = "techniques_test",
+    srcs = ["fixed_size_test.go"],
+    embed = [":techniques"],
+    deps = ["@com_github_stretchr_testify//require"],
+)

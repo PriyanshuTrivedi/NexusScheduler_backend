@@ -6,6 +6,7 @@ go_library(
     importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/controller",
     visibility = ["//visibility:public"],
     deps = [
+        "//code/chatbot/chunker",
         "//code/chatbot/client",
         "//code/chatbot/entity",
         "//code/chatbot/prompt",
@@ -22,6 +23,7 @@ go_test(
     deps = [
         "//code/chatbot/entity",
         "//code/chatbot/store",
+        "//gen/mocks/chatbot/chunker",
         "//gen/mocks/chatbot/client",
         "//gen/mocks/chatbot/store",
         "@com_github_golang_mock//gomock",

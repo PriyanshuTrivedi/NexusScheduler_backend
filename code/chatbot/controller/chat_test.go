@@ -1,11 +1,14 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
+	chunkermocks "github.com/PriyanshuTrivedi/nexus-scheduler/gen/mocks/chatbot/chunker"
 	clientmocks "github.com/PriyanshuTrivedi/nexus-scheduler/gen/mocks/chatbot/client"
 	storemocks "github.com/PriyanshuTrivedi/nexus-scheduler/gen/mocks/chatbot/store"
 
@@ -23,7 +26,7 @@ func TestController_SendMessage_Success(t *testing.T) {
 	mockLLM := clientmocks.NewMockLLM(ctrl)
 	mockMCP := clientmocks.NewMockMCPClient(ctrl)
 
-	controller := New(mockStore, mockLLM, mockMCP, RetryConfig{})
+	controller := New(mockStore, mockLLM, mockMCP, nil, nil, RetryConfig{})
 
 	ctx := context.Background()
 	userID := "user-123"
@@ -109,7 +112,7 @@ func TestController_SendMessage_CreateNewConversation(t *testing.T) {
 	mockLLM := clientmocks.NewMockLLM(ctrl)
 	mockMCP := clientmocks.NewMockMCPClient(ctrl)
 
-	controller := New(mockStore, mockLLM, mockMCP, RetryConfig{})
+	controller := New(mockStore, mockLLM, mockMCP, nil, nil, RetryConfig{})
 
 	ctx := context.Background()
 	userID := "user-123"
@@ -178,7 +181,7 @@ func TestController_SendMessage_GetActiveConversationError(t *testing.T) {
 	mockLLM := clientmocks.NewMockLLM(ctrl)
 	mockMCP := clientmocks.NewMockMCPClient(ctrl)
 
-	controller := New(mockStore, mockLLM, mockMCP, RetryConfig{})
+	controller := New(mockStore, mockLLM, mockMCP, nil, nil, RetryConfig{})
 
 	mockStore.EXPECT().
 		GetActiveConversation(gomock.Any(), "user-123").
@@ -199,7 +202,7 @@ func TestController_SendMessage_GenerateReplyError(t *testing.T) {
 	mockLLM := clientmocks.NewMockLLM(ctrl)
 	mockMCP := clientmocks.NewMockMCPClient(ctrl)
 
-	controller := New(mockStore, mockLLM, mockMCP, RetryConfig{})
+	controller := New(mockStore, mockLLM, mockMCP, nil, nil, RetryConfig{})
 
 	conversation := &entity.Conversation{
 		ID:        "conversation-123",
@@ -234,7 +237,7 @@ func TestController_SendMessage_IdleConversation(t *testing.T) {
 	mockLLM := clientmocks.NewMockLLM(ctrl)
 	mockMCP := clientmocks.NewMockMCPClient(ctrl)
 
-	controller := New(mockStore, mockLLM, mockMCP, RetryConfig{})
+	controller := New(mockStore, mockLLM, mockMCP, nil, nil, RetryConfig{})
 
 	ctx := context.Background()
 	userID := "user-123"
@@ -314,7 +317,7 @@ func TestController_SendMessage_ToolExecution(t *testing.T) {
 	mockLLM := clientmocks.NewMockLLM(ctrl)
 	mockMCP := clientmocks.NewMockMCPClient(ctrl)
 
-	controller := New(mockStore, mockLLM, mockMCP, RetryConfig{})
+	controller := New(mockStore, mockLLM, mockMCP, nil, nil, RetryConfig{})
 
 	ctx := context.Background()
 	now := time.Now()
@@ -410,7 +413,7 @@ func TestController_SendMessage_RetryServerError(t *testing.T) {
 	mockLLM := clientmocks.NewMockLLM(ctrl)
 	mockMCP := clientmocks.NewMockMCPClient(ctrl)
 
-	controller := New(mockStore, mockLLM, mockMCP, RetryConfig{
+	controller := New(mockStore, mockLLM, mockMCP, nil, nil, RetryConfig{
 		MaxRetries: 1,
 		BaseDelay:  time.Nanosecond,
 	})
@@ -470,7 +473,7 @@ func TestController_CloseConversation_Success(t *testing.T) {
 	mockLLM := clientmocks.NewMockLLM(ctrl)
 	mockMCP := clientmocks.NewMockMCPClient(ctrl)
 
-	controller := New(mockStore, mockLLM, mockMCP, RetryConfig{})
+	controller := New(mockStore, mockLLM, mockMCP, nil, nil, RetryConfig{})
 
 	ctx := context.Background()
 	now := time.Now()
@@ -514,7 +517,7 @@ func TestController_CloseConversation_NotFound(t *testing.T) {
 	mockLLM := clientmocks.NewMockLLM(ctrl)
 	mockMCP := clientmocks.NewMockMCPClient(ctrl)
 
-	controller := New(mockStore, mockLLM, mockMCP, RetryConfig{})
+	controller := New(mockStore, mockLLM, mockMCP, nil, nil, RetryConfig{})
 
 	mockStore.EXPECT().
 		GetActiveConversation(gomock.Any(), "user-123").
@@ -560,7 +563,7 @@ func TestController_ListConversations_LimitHandling(t *testing.T) {
 			mockLLM := clientmocks.NewMockLLM(ctrl)
 			mockMCP := clientmocks.NewMockMCPClient(ctrl)
 
-			controller := New(mockStore, mockLLM, mockMCP, RetryConfig{})
+			controller := New(mockStore, mockLLM, mockMCP, nil, nil, RetryConfig{})
 
 			mockStore.EXPECT().
 				ListConversations(gomock.Any(), "user-123", tt.expectedLimit, int32(0)).
@@ -585,7 +588,7 @@ func TestController_GetMessages_Success(t *testing.T) {
 	mockLLM := clientmocks.NewMockLLM(ctrl)
 	mockMCP := clientmocks.NewMockMCPClient(ctrl)
 
-	controller := New(mockStore, mockLLM, mockMCP, RetryConfig{})
+	controller := New(mockStore, mockLLM, mockMCP, nil, nil, RetryConfig{})
 
 	expectedMessages := []*entity.Message{
 		{
@@ -608,4 +611,138 @@ func TestController_GetMessages_Success(t *testing.T) {
 	require.NotNil(t, response)
 
 	assert.Equal(t, expectedMessages, response.Messages)
+}
+
+func makeControllerTestPDF(text string) []byte {
+	var buffer bytes.Buffer
+	offsets := []int{0}
+	writeObject := func(id int, body string) {
+		offsets = append(offsets, buffer.Len())
+		fmt.Fprintf(&buffer, "%d 0 obj\n%s\nendobj\n", id, body)
+	}
+
+	buffer.WriteString("%PDF-1.4\n")
+	writeObject(1, "<< /Type /Catalog /Pages 2 0 R >>")
+	writeObject(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	writeObject(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>")
+	writeObject(4, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+	stream := fmt.Sprintf("BT /F1 12 Tf 72 720 Td (%s) Tj ET", text)
+	writeObject(5, fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(stream), stream))
+	xrefOffset := buffer.Len()
+	fmt.Fprintf(&buffer, "xref\n0 %d\n", len(offsets))
+	buffer.WriteString("0000000000 65535 f \n")
+	for _, offset := range offsets[1:] {
+		fmt.Fprintf(&buffer, "%010d 00000 n \n", offset)
+	}
+	fmt.Fprintf(&buffer, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF", len(offsets), xrefOffset)
+	return buffer.Bytes()
+}
+
+func TestController_IndexDocuments_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := storemocks.NewMockStore(ctrl)
+	mockLLM := clientmocks.NewMockLLM(ctrl)
+	mockMCP := clientmocks.NewMockMCPClient(ctrl)
+	mockPinecone := clientmocks.NewMockPineconeClient(ctrl)
+	mockChunker := chunkermocks.NewMockChunker(ctrl)
+
+	ctx := context.Background()
+	pdfContent := makeControllerTestPDF("Nexus Scheduler document")
+	chunks := []string{"chunk one", "chunk two"}
+	embeddings := []entity.Embedding{
+		{Vector: []float32{0.1, 0.2}, Content: chunks[0]},
+		{Vector: []float32{0.3, 0.4}, Content: chunks[1]},
+	}
+
+	controller := New(mockStore, mockLLM, mockMCP, mockPinecone, mockChunker, RetryConfig{})
+	mockChunker.EXPECT().
+		Chunk(gomock.Any()).
+		DoAndReturn(func(text string) ([]string, error) {
+			assert.Contains(t, text, "Nexus Scheduler document")
+			return chunks, nil
+		})
+	mockLLM.EXPECT().
+		GenerateEmbeddings(ctx, chunks).
+		Return(embeddings, nil)
+	mockPinecone.EXPECT().
+		UpsertVectors(ctx, gomock.Any()).
+		DoAndReturn(func(_ context.Context, vectors []entity.PineconeVector) (uint32, error) {
+			require.Len(t, vectors, 2)
+			assert.Equal(t, "object-1_0", vectors[0].ID)
+			assert.Equal(t, "object-1", vectors[0].Metadata["object_id"])
+			assert.Equal(t, "user-1", vectors[0].Metadata["owner_user_id"])
+			assert.Equal(t, "idempotency-1", vectors[0].Metadata["idempotency_key"])
+			return 2, nil
+		})
+
+	response, err := controller.IndexDocuments(ctx, &entity.IndexDocumentRequest{
+		ObjectID: "object-1", OwnerUserID: "user-1", IdempotencyKey: "idempotency-1",
+		DocumentType: entity.DocumentTypePDF, Content: pdfContent,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, &entity.IndexDocumentResponse{Indexed: true, ChunksUpserted: 2}, response)
+}
+
+func TestController_IndexDocuments_ValidationError(t *testing.T) {
+	controller := New(nil, nil, nil, nil, nil, RetryConfig{})
+	response, err := controller.IndexDocuments(context.Background(), nil)
+	require.Nil(t, response)
+	require.ErrorContains(t, err, "validate index document request")
+}
+
+func TestController_IndexDocuments_ChunkingError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockChunker := chunkermocks.NewMockChunker(ctrl)
+	controller := New(nil, nil, nil, nil, mockChunker, RetryConfig{})
+
+	mockChunker.EXPECT().Chunk(gomock.Any()).Return(nil, errors.New("chunker failure"))
+	response, err := controller.IndexDocuments(context.Background(), &entity.IndexDocumentRequest{
+		ObjectID: "object-1", OwnerUserID: "user-1", IdempotencyKey: "key-1",
+		DocumentType: entity.DocumentTypePDF, Content: makeControllerTestPDF("some text"),
+	})
+	require.Nil(t, response)
+	require.ErrorContains(t, err, "chunk document")
+}
+
+func TestController_DeleteDocumentIndex_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockPinecone := clientmocks.NewMockPineconeClient(ctrl)
+	controller := New(nil, nil, nil, mockPinecone, nil, RetryConfig{})
+
+	mockPinecone.EXPECT().
+		DeleteVectorsByFilter(context.Background(), entity.PineconeFilter{
+			"object_id":     map[string]interface{}{"$eq": "object-1"},
+			"owner_user_id": map[string]interface{}{"$eq": "user-1"},
+		}).
+		Return(nil)
+
+	response, err := controller.DeleteDocumentIndex(context.Background(), &entity.DeleteDocumentIndexRequest{
+		ObjectID: "object-1", OwnerUserID: "user-1",
+	})
+	require.NoError(t, err)
+	require.Equal(t, &entity.DeleteDocumentIndexResponse{Deleted: true}, response)
+}
+
+func TestController_DeleteDocumentIndex_ValidationError(t *testing.T) {
+	controller := New(nil, nil, nil, nil, nil, RetryConfig{})
+	response, err := controller.DeleteDocumentIndex(context.Background(), nil)
+	require.Nil(t, response)
+	require.ErrorContains(t, err, "validate delete document index request")
+}
+
+func TestController_DeleteDocumentIndex_PineconeError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockPinecone := clientmocks.NewMockPineconeClient(ctrl)
+	controller := New(nil, nil, nil, mockPinecone, nil, RetryConfig{})
+
+	mockPinecone.EXPECT().
+		DeleteVectorsByFilter(gomock.Any(), gomock.Any()).
+		Return(errors.New("Pinecone unavailable"))
+
+	response, err := controller.DeleteDocumentIndex(context.Background(), &entity.DeleteDocumentIndexRequest{
+		ObjectID: "object-1", OwnerUserID: "user-1",
+	})
+	require.Nil(t, response)
+	require.ErrorContains(t, err, "delete document vectors")
 }

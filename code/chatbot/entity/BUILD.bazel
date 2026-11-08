@@ -4,8 +4,10 @@ go_library(
     name = "entity",
     srcs = [
         "chat.go",
+        "document.go",
         "llm.go",
         "mcp.go",
+        "pinecone.go",
     ],
     importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/entity",
     visibility = ["//visibility:public"],

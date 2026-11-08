@@ -8,7 +8,11 @@ postgres:
   conn_max_lifetime_minutes: 60
 
 gemini:
-  model: gemini-3.5-flash-lite
+  llm:
+    model: gemini-3.5-flash-lite
+  embedding:
+    model: gemini-embedding-001
+    dimensions: 768
   max_retries: 3
   retry_base_delay_ms: 250
 
@@ -16,3 +20,12 @@ mcp:
   client:
     name: nexus-scheduler-chatbot
     version: 1.0.0
+
+chunking:
+  strategy_fixed:
+    chunk_size: 500
+    overlap: 75
+    min_chunk_size: 50
+
+pinecone:
+  index_host: your-pinecone-index-host

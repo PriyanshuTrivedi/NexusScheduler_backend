@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+
 	pb "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/identity"
 	"google.golang.org/grpc"
 )
@@ -21,4 +22,8 @@ type IdentityClient interface {
 	UpdateProfile(context.Context, *pb.UpdateProfileRequest, ...grpc.CallOption) (*pb.UpdateProfileResponse, error)
 	SetUserStatus(context.Context, *pb.SetUserStatusRequest, ...grpc.CallOption) (*pb.SetUserStatusResponse, error)
 	GetUser(context.Context, *pb.GetUserRequest, ...grpc.CallOption) (*pb.GetUserResponse, error)
+	// object storage specific
+	UploadFile(context.Context, *pb.UploadFileRequest, ...grpc.CallOption) (*pb.UploadFileResponse, error)
+	GetFile(context.Context, *pb.GetFileRequest, ...grpc.CallOption) (*pb.GetFileResponse, error)
+	DeleteFile(context.Context, *pb.DeleteFileRequest, ...grpc.CallOption) (*pb.DeleteFileResponse, error)
 }

@@ -2,28 +2,41 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "controller",
-    srcs = ["user.go"],
+    srcs = [
+        "object_storage.go",
+        "user.go",
+    ],
     importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/identity/controller",
     visibility = ["//visibility:public"],
     deps = [
         "//code/identity/client/cache",
+        "//code/identity/client/chatbot",
+        "//code/identity/client/dbbyte",
         "//code/identity/entity",
         "//code/identity/store",
         "//code/identity/util",
+        "//gen/idl/chatbot",
     ],
 )
 
 go_test(
     name = "controller_test",
-    srcs = ["user_test.go"],
+    srcs = [
+        "object_storage_test.go",
+        "user_test.go",
+    ],
     embed = [":controller"],
     deps = [
         "//code/identity/entity",
         "//code/identity/store",
         "//code/identity/util",
+        "//gen/idl/chatbot",
         "//gen/mocks/identity/client/cache",
+        "//gen/mocks/identity/client/chatbot",
+        "//gen/mocks/identity/client/dbbyte",
         "//gen/mocks/identity/store",
         "@com_github_golang_mock//gomock",
         "@com_github_stretchr_testify//require",
+        "@org_golang_google_grpc//:grpc",
     ],
 )

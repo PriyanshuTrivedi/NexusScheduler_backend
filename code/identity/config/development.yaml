@@ -1,2 +1,6 @@
 env: development
 grpc_port: 9004
+
+dbbyte:
+  base_url: https://api.dbbyte.com
+  bucket: nexus-scheduler

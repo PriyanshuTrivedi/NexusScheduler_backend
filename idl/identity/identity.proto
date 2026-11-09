@@ -5,10 +5,10 @@ option go_package = "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/identit
 
 enum UserRole {
   USER_ROLE_UNSPECIFIED = 0;
-  USER_ROLE_ADMIN        = 1;
-  USER_ROLE_CLIENT       = 2;
-  USER_ROLE_ORG_HEAD     = 3;
-  USER_ROLE_RESOURCE     = 4;
+  USER_ROLE_ADMIN       = 1;
+  USER_ROLE_CLIENT      = 2;
+  USER_ROLE_ORG_HEAD    = 3;
+  USER_ROLE_RESOURCE    = 4;
 }
 
 enum TenantType {
@@ -26,6 +26,26 @@ enum InvitationStatus {
   INVITATION_STATUS_REVOKED            = 5;
 }
 
+enum ObjectVisibility {
+  OBJECT_VISIBILITY_UNSPECIFIED = 0;
+  OBJECT_VISIBILITY_PUBLIC      = 1;
+  OBJECT_VISIBILITY_PRIVATE     = 2;
+}
+
+enum MimeType {
+  MIME_TYPE_UNSPECIFIED = 0;
+  MIME_TYPE_PDF         = 1;
+  MIME_TYPE_JPEG        = 2;
+  MIME_TYPE_PNG         = 3;
+  MIME_TYPE_WEBP        = 4;
+}
+
+enum ObjectType {
+  OBJECT_TYPE_UNSPECIFIED       = 0;
+  OBJECT_TYPE_PROFILE_PICTURE   = 1;
+  OBJECT_TYPE_RESOURCE_DOCUMENT = 2;
+}
+
 message UserIdentifier {
   oneof value {
     string email = 1;
@@ -34,23 +54,23 @@ message UserIdentifier {
 }
 
 message User {
-  string user_id              = 1;
-  optional string org_id      = 2;
-  string name                 = 3;
-  UserIdentifier identifier   = 4;
-  UserRole role               = 5;
-  bool is_active              = 6;
-  int64 created_at_unix       = 7;
-  int64 updated_at_unix       = 8;
-  TenantType tenant_type      = 9;
+  string          user_id         = 1;
+  optional string org_id          = 2;
+  string          name            = 3;
+  UserIdentifier  identifier      = 4;
+  UserRole        role            = 5;
+  bool            is_active       = 6;
+  int64           created_at_unix = 7;
+  int64           updated_at_unix = 8;
+  TenantType      tenant_type     = 9;
 }
 
 message Organization {
   string organization_id = 1;
   string name            = 2;
-  bool is_active         = 3;
-  int64 created_at_unix  = 4;
-  int64 updated_at_unix  = 5;
+  bool   is_active       = 3;
+  int64  created_at_unix = 4;
+  int64  updated_at_unix = 5;
 }
 
 message CreateOrganizationRequest {
@@ -80,7 +100,7 @@ message GetOrganizationResponse {
 
 message SetOrganizationStatusRequest {
   string organization_id = 1;
-  bool is_active          = 2;
+  bool   is_active       = 2;
 }
 
 message SetOrganizationStatusResponse {
@@ -96,9 +116,9 @@ message DeleteOrganizationRequest {
 message DeleteOrganizationResponse {}
 
 message RegisterClientRequest {
-  string name               = 1;
+  string         name       = 1;
   UserIdentifier identifier = 2;
-  string password           = 3;
+  string         password   = 3;
 }
 
 message RegisterClientResponse {
@@ -106,14 +126,14 @@ message RegisterClientResponse {
 }
 
 message RequestOrgHeadRequest {
-  string name              = 1;
-  UserIdentifier identifier = 2;
-  string organization_name = 3;
+  string         name              = 1;
+  UserIdentifier identifier        = 2;
+  string         organization_name = 3;
 }
 
 message RequestOrgHeadResponse {
-  string invitation_id = 1;
-  InvitationStatus status = 2;
+  string           invitation_id = 1;
+  InvitationStatus status        = 2;
 }
 
 message ApproveOrgHeadRequest {
@@ -121,20 +141,20 @@ message ApproveOrgHeadRequest {
 }
 
 message ApproveOrgHeadResponse {
-  string invitation_id = 1;
-  InvitationStatus status = 2;
-  string org_id = 3;
+  string           invitation_id = 1;
+  InvitationStatus status        = 2;
+  string           org_id        = 3;
 }
 
 message InviteResourceRequest {
-  string org_id             = 1;
-  string name               = 2;
+  string         org_id     = 1;
+  string         name       = 2;
   UserIdentifier identifier = 3;
 }
 
 message InviteResourceResponse {
-  string invitation_id = 1;
-  InvitationStatus status = 2;
+  string           invitation_id = 1;
+  InvitationStatus status        = 2;
 }
 
 message AcceptInvitationRequest {
@@ -149,7 +169,7 @@ message AcceptInvitationResponse {
 
 message LoginRequest {
   UserIdentifier identifier = 1;
-  string password = 2;
+  string         password   = 2;
 }
 
 message LoginResponse {
@@ -166,8 +186,8 @@ message UpdateProfileResponse {
 }
 
 message SetUserStatusRequest {
-  string user_id = 1;
-  bool is_active = 2;
+  string user_id   = 1;
+  bool   is_active = 2;
 }
 
 message SetUserStatusResponse {
@@ -203,15 +223,64 @@ message ListOrganizationsResponse {
 }
 
 message RegisterProviderRequest {
-  string name               = 1;
-  UserIdentifier identifier = 2;
-  string password           = 3;
-  TenantType tenant_type    = 4;
-  string org_id             = 5;
+  string         name        = 1;
+  UserIdentifier identifier  = 2;
+  string         password    = 3;
+  TenantType     tenant_type = 4;
+  string         org_id      = 5;
 }
 
 message RegisterProviderResponse {
   User user = 1;
+}
+
+// Object storage
+
+message ObjectMetadata {
+  string           object_id          = 1;
+  string           owner_user_id      = 2;
+  ObjectType       object_type        = 3;
+  ObjectVisibility visibility         = 4;
+  string           original_file_name = 5;
+  MimeType         mime_type          = 6;
+  int64            size_bytes         = 7;
+  int64            created_at_unix    = 8;
+  int64            updated_at_unix    = 9;
+}
+
+message UploadFileRequest {
+  string           user_id         = 1;
+  string           file_name       = 2;
+  MimeType         mime_type       = 3;
+  ObjectType       object_type     = 4;
+  ObjectVisibility visibility      = 5;
+  bytes            content         = 6;
+  optional string  idempotency_key = 7;
+}
+
+message UploadFileResponse {
+  ObjectMetadata object          = 1;
+  bool           indexed         = 2;
+  optional int32 chunks_upserted = 3;
+}
+
+message GetFileRequest {
+  string user_id   = 1;
+  string object_id = 2;
+}
+
+message GetFileResponse {
+  ObjectMetadata object  = 1;
+  bytes          content = 2;
+}
+
+message DeleteFileRequest {
+  string user_id   = 1;
+  string object_id = 2;
+}
+
+message DeleteFileResponse {
+  bool deleted = 1;
 }
 
 service IdentityService {
@@ -220,11 +289,13 @@ service IdentityService {
   rpc GetOrganization(GetOrganizationRequest) returns (GetOrganizationResponse);
   rpc SetOrganizationStatus(SetOrganizationStatusRequest) returns (SetOrganizationStatusResponse);
   rpc DeleteOrganization(DeleteOrganizationRequest) returns (DeleteOrganizationResponse);
+
   rpc RegisterClient(RegisterClientRequest) returns (RegisterClientResponse);
   rpc RequestOrgHead(RequestOrgHeadRequest) returns (RequestOrgHeadResponse);
   rpc ApproveOrgHead(ApproveOrgHeadRequest) returns (ApproveOrgHeadResponse);
   rpc InviteResource(InviteResourceRequest) returns (InviteResourceResponse);
   rpc AcceptInvitation(AcceptInvitationRequest) returns (AcceptInvitationResponse);
+
   rpc Login(LoginRequest) returns (LoginResponse);
   rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
   rpc SetUserStatus(SetUserStatusRequest) returns (SetUserStatusResponse);
@@ -233,4 +304,9 @@ service IdentityService {
   rpc GetUser(GetUserRequest) returns (GetUserResponse);
   rpc ListOrganizations(ListOrganizationsRequest) returns (ListOrganizationsResponse);
   rpc RegisterProvider(RegisterProviderRequest) returns (RegisterProviderResponse);
+
+  // Object storage operations.
+  rpc UploadFile(UploadFileRequest) returns (UploadFileResponse);
+  rpc GetFile(GetFileRequest) returns (GetFileResponse);
+  rpc DeleteFile(DeleteFileRequest) returns (DeleteFileResponse);
 }

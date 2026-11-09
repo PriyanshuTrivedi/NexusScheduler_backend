@@ -1,0 +1,22 @@
+load("@rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "dbbyte",
+    srcs = ["dbbyte.go"],
+    importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/identity/client/dbbyte",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//code/identity/entity",
+        "//code/identity/util",
+    ],
+)
+
+go_test(
+    name = "dbbyte_test",
+    srcs = ["dbbyte_test.go"],
+    embed = [":dbbyte"],
+    deps = [
+        "//code/identity/entity",
+        "@com_github_stretchr_testify//require",
+    ],
+)

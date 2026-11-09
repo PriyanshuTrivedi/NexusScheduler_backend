@@ -3,7 +3,9 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "entity",
     srcs = [
+        "dbbyte.go",
         "invitation.go",
+        "object_storage.go",
         "user.go",
     ],
     importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/identity/entity",
@@ -12,6 +14,10 @@ go_library(
 
 go_test(
     name = "entity_test",
-    srcs = ["user_test.go"],
+    srcs = [
+        "object_storage_test.go",
+        "user_test.go",
+    ],
     embed = [":entity"],
+    deps = ["@com_github_stretchr_testify//require"],
 )

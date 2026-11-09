@@ -8,6 +8,7 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//code/identity/client/cache",
+        "//code/identity/client/dbbyte",
         "//code/identity/controller",
         "//code/identity/handler",
         "//code/identity/store",

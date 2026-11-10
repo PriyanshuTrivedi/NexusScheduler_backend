@@ -12,14 +12,21 @@ import (
 
 type GeminiClient interface {
 	GenerateResponse(ctx context.Context, request entity.LLMRequest) (*entity.LLMResponse, error)
+	GenerateEmbeddings(ctx context.Context, chunks []string) ([]entity.Embedding, error)
+}
+
+type GeminiConfig struct {
+	Model               string
+	EmbeddingModel      string
+	EmbeddingDimensions int32
 }
 
 type geminiClient struct {
-	client *genai.Client
-	model  string
+	client       *genai.Client
+	clientConfig GeminiConfig
 }
 
-func NewGeminiClient(ctx context.Context, apiKey string, model string) (GeminiClient, error) {
+func NewGeminiClient(ctx context.Context, apiKey string, cfg GeminiConfig) (GeminiClient, error) {
 	client, err := genai.NewClient(ctx, &genai.ClientConfig{
 		APIKey:  apiKey,
 		Backend: genai.BackendGeminiAPI,
@@ -29,8 +36,8 @@ func NewGeminiClient(ctx context.Context, apiKey string, model string) (GeminiCl
 	}
 
 	return &geminiClient{
-		client: client,
-		model:  model,
+		client:       client,
+		clientConfig: cfg,
 	}, nil
 }
 
@@ -55,7 +62,7 @@ func (c *geminiClient) GenerateResponse(ctx context.Context, request entity.LLMR
 		config.Tools = tools
 	}
 
-	response, err := c.client.Models.GenerateContent(ctx, c.model, contents, config)
+	response, err := c.client.Models.GenerateContent(ctx, c.clientConfig.Model, contents, config)
 	if err != nil {
 		return nil, fmt.Errorf("generate Gemini response: %w", err)
 	}
@@ -88,6 +95,65 @@ func (c *geminiClient) GenerateResponse(ctx context.Context, request entity.LLMR
 	}
 
 	return result, nil
+}
+
+func (c *geminiClient) GenerateEmbeddings(ctx context.Context, chunks []string) ([]entity.Embedding, error) {
+	contents, err := convertChunks(chunks)
+	if err != nil {
+		return nil, fmt.Errorf("convert chunks to Gemini content: %w", err)
+	}
+
+	response, err := c.client.Models.EmbedContent(
+		ctx,
+		c.clientConfig.EmbeddingModel,
+		contents,
+		&genai.EmbedContentConfig{
+			TaskType:             "RETRIEVAL_DOCUMENT",
+			OutputDimensionality: &c.clientConfig.EmbeddingDimensions,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("generate Gemini embeddings: %w", err)
+	}
+
+	if response == nil || len(response.Embeddings) != len(chunks) {
+		return nil, fmt.Errorf("Gemini returned an unexpected number of embeddings")
+	}
+
+	embeddings := make([]entity.Embedding, 0, len(response.Embeddings))
+	for i, embedding := range response.Embeddings {
+		if embedding == nil || len(embedding.Values) == 0 {
+			return nil, fmt.Errorf("Gemini returned an empty embedding for chunk %d", i)
+		}
+
+		embeddings = append(embeddings, entity.Embedding{
+			Vector:  embedding.Values,
+			Content: chunks[i],
+		})
+	}
+
+	return embeddings, nil
+}
+
+func convertChunks(chunks []string) ([]*genai.Content, error) {
+	if len(chunks) == 0 {
+		return nil, fmt.Errorf("cannot generate embeddings for empty chunks")
+	}
+
+	contents := make([]*genai.Content, 0, len(chunks))
+	for _, chunk := range chunks {
+		if chunk == "" {
+			return nil, fmt.Errorf("cannot generate embedding for an empty chunk")
+		}
+
+		contents = append(contents, &genai.Content{
+			Parts: []*genai.Part{
+				{Text: chunk},
+			},
+		})
+	}
+
+	return contents, nil
 }
 
 func convertMessages(messages []entity.LLMMessage) ([]*genai.Content, error) {

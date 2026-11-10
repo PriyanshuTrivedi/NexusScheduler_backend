@@ -1,2 +1,8 @@
 env: staging
 grpc_port: 9004
+
+chatbot_grpc_addr: localhost:9005
+
+dbbyte:
+  base_url: https://api.dbbyte.com
+  bucket: nexus-scheduler

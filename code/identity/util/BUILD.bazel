@@ -3,6 +3,9 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "util",
     srcs = [
+        "error.go",
+        "http.go",
+        "object_storage.go",
         "otp.go",
         "password.go",
         "token.go",
@@ -12,7 +15,10 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//code/identity/entity",
+        "//code/identity/store",
         "//gen/idl/identity",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
         "@org_golang_x_crypto//bcrypt",
     ],
 )
@@ -20,9 +26,15 @@ go_library(
 go_test(
     name = "util_test",
     srcs = [
+        "object_storage_test.go",
         "otp_test.go",
         "password_test.go",
         "token_test.go",
     ],
     embed = [":util"],
+    deps = [
+        "//code/identity/entity",
+        "//gen/idl/identity",
+        "@com_github_stretchr_testify//require",
+    ],
 )

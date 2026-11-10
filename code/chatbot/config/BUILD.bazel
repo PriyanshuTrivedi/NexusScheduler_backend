@@ -7,6 +7,8 @@ go_library(
     importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/config",
     visibility = ["//visibility:public"],
     deps = [
+        "//code/chatbot/chunker",
+        "//code/chatbot/chunker/techniques",
         "//code/chatbot/client",
         "//code/chatbot/client/llmclients",
         "//code/chatbot/controller",

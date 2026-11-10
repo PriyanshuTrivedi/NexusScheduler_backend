@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -676,6 +678,226 @@ func TestGetChatMessages_MissingConversationID(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	h.GetChatMessages(rr, r)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func documentUploadRequest(t *testing.T, content []byte, principal middleware.Principal) *http.Request {
+	t.Helper()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	file, err := writer.CreateFormFile("file", "resume.pdf")
+	assert.NoError(t, err)
+
+	_, err = file.Write(content)
+	assert.NoError(t, err)
+	assert.NoError(t, writer.Close())
+
+	req := authenticatedRequest(
+		t,
+		http.MethodPost,
+		"/api/v1/documents",
+		body.String(),
+		principal,
+	)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	return req
+}
+
+func TestUploadDocument(t *testing.T) {
+	h, identity, _, _, _ := newHandlerTest(t)
+
+	content := []byte("%PDF-1.4\nsample pdf content")
+	req := documentUploadRequest(t, content, resourcePrincipal())
+	req.Header.Set("Idempotency-Key", "550e8400-e29b-41d4-a716-446655440000")
+
+	identity.EXPECT().
+		UploadFile(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, request *identitypb.UploadFileRequest, _ ...grpc.CallOption) (*identitypb.UploadFileResponse, error) {
+			assert.Equal(t, "resource-user", request.UserId)
+			assert.Equal(t, "resume.pdf", request.FileName)
+			assert.Equal(t, identitypb.MimeType_MIME_TYPE_PDF, request.MimeType)
+			assert.Equal(t, identitypb.ObjectType_OBJECT_TYPE_RESOURCE_DOCUMENT, request.ObjectType)
+			assert.Equal(t, identitypb.ObjectVisibility_OBJECT_VISIBILITY_PRIVATE, request.Visibility)
+			assert.Equal(t, content, request.Content)
+			assert.NotNil(t, request.IdempotencyKey)
+			assert.Equal(t, "550e8400-e29b-41d4-a716-446655440000", *request.IdempotencyKey)
+
+			return &identitypb.UploadFileResponse{
+				Object: &identitypb.ObjectMetadata{
+					ObjectId:         "object-1",
+					OriginalFileName: "resume.pdf",
+				},
+			}, nil
+		})
+
+	rr := httptest.NewRecorder()
+	h.UploadDocument(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Contains(t, rr.Body.String(), "object-1")
+}
+
+func TestUploadDocument_InvalidFileType(t *testing.T) {
+	h, _, _, _, _ := newHandlerTest(t)
+
+	req := documentUploadRequest(
+		t,
+		[]byte("this is not a PDF"),
+		resourcePrincipal(),
+	)
+
+	rr := httptest.NewRecorder()
+	h.UploadDocument(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestUploadDocument_EmptyFile(t *testing.T) {
+	h, _, _, _, _ := newHandlerTest(t)
+
+	req := documentUploadRequest(t, []byte{}, resourcePrincipal())
+
+	rr := httptest.NewRecorder()
+	h.UploadDocument(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestUploadDocument_Unauthenticated(t *testing.T) {
+	h, _, _, _, _ := newHandlerTest(t)
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/documents",
+		nil,
+	)
+
+	rr := httptest.NewRecorder()
+	h.UploadDocument(rr, req)
+
+	assert.Equal(t, http.StatusForbidden, rr.Code)
+}
+
+func TestGetDocument(t *testing.T) {
+	h, identity, _, _, _ := newHandlerTest(t)
+
+	content := []byte("%PDF-1.4\nsample pdf content")
+
+	req := authenticatedRequest(
+		t,
+		http.MethodGet,
+		"/api/v1/documents/object-1",
+		"",
+		resourcePrincipal(),
+	)
+	req.SetPathValue("object_id", "object-1")
+
+	identity.EXPECT().
+		GetFile(gomock.Any(), &identitypb.GetFileRequest{
+			UserId:   "resource-user",
+			ObjectId: "object-1",
+		}, gomock.Any()).
+		Return(&identitypb.GetFileResponse{
+			Object: &identitypb.ObjectMetadata{
+				ObjectId:         "object-1",
+				OriginalFileName: "resume.pdf",
+			},
+			Content: content,
+		}, nil)
+
+	rr := httptest.NewRecorder()
+	h.GetDocument(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "application/pdf", rr.Header().Get("Content-Type"))
+	assert.Contains(t, rr.Header().Get("Content-Disposition"), "inline")
+	assert.Equal(t, string(content), rr.Body.String())
+}
+
+func TestGetDocument_MissingObjectID(t *testing.T) {
+	h, _, _, _, _ := newHandlerTest(t)
+
+	req := authenticatedRequest(
+		t,
+		http.MethodGet,
+		"/api/v1/documents/",
+		"",
+		resourcePrincipal(),
+	)
+
+	rr := httptest.NewRecorder()
+	h.GetDocument(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestGetDocument_NotFound(t *testing.T) {
+	h, identity, _, _, _ := newHandlerTest(t)
+
+	req := authenticatedRequest(
+		t,
+		http.MethodGet,
+		"/api/v1/documents/object-1",
+		"",
+		resourcePrincipal(),
+	)
+	req.SetPathValue("object_id", "object-1")
+
+	identity.EXPECT().
+		GetFile(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, status.Error(codes.NotFound, "object not found"))
+
+	rr := httptest.NewRecorder()
+	h.GetDocument(rr, req)
+
+	assert.Equal(t, http.StatusNotFound, rr.Code)
+}
+
+func TestDeleteDocument(t *testing.T) {
+	h, identity, _, _, _ := newHandlerTest(t)
+
+	req := authenticatedRequest(
+		t,
+		http.MethodDelete,
+		"/api/v1/documents/object-1",
+		"",
+		resourcePrincipal(),
+	)
+	req.SetPathValue("object_id", "object-1")
+
+	identity.EXPECT().
+		DeleteFile(gomock.Any(), &identitypb.DeleteFileRequest{
+			UserId:   "resource-user",
+			ObjectId: "object-1",
+		}, gomock.Any()).
+		Return(&identitypb.DeleteFileResponse{
+			Deleted: true,
+		}, nil)
+
+	rr := httptest.NewRecorder()
+	h.DeleteDocument(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Contains(t, rr.Body.String(), `"deleted":true`)
+}
+
+func TestDeleteDocument_MissingObjectID(t *testing.T) {
+	h, _, _, _, _ := newHandlerTest(t)
+
+	req := authenticatedRequest(
+		t,
+		http.MethodDelete,
+		"/api/v1/documents/",
+		"",
+		resourcePrincipal(),
+	)
+
+	rr := httptest.NewRecorder()
+	h.DeleteDocument(rr, req)
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }

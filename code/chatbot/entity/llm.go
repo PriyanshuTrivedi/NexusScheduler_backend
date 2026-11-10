@@ -30,3 +30,8 @@ type FunctionResponse struct {
 	Name     string
 	Response map[string]any
 }
+
+type Embedding struct {
+	Vector  []float32
+	Content string
+}

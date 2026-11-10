@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,6 +23,8 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
+
+const maxDocumentSize = 1 << 20 // 1 MiB
 
 type Handler struct {
 	Identity client.IdentityClient
@@ -1235,6 +1239,158 @@ func (h *Handler) GetChatMessages(w http.ResponseWriter, r *http.Request) {
 	resp, err := h.Chatbot.GetMessages(meta(r), &chatbotpb.GetMessagesRequest{
 		UserId:         p.UserID,
 		ConversationId: conversationID,
+	})
+	call(w, resp, err)
+}
+
+func (h *Handler) UploadDocument(w http.ResponseWriter, r *http.Request) {
+	p, ok := middleware.PrincipalFromContext(r.Context())
+	if !ok || p.UserID == "" {
+		writeForbidden(w, "authentication required")
+		return
+	}
+
+	if err := r.ParseMultipartForm(maxDocumentSize + 1024); err != nil {
+		util.WriteJSON(w, map[string]string{
+			"code":    "INVALID_ARGUMENT",
+			"message": "invalid multipart form",
+		}, http.StatusBadRequest)
+		return
+	}
+
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		util.WriteJSON(w, map[string]string{
+			"code":    "INVALID_ARGUMENT",
+			"message": "file is required",
+		}, http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	content, err := io.ReadAll(io.LimitReader(file, maxDocumentSize+1))
+	if err != nil {
+		util.WriteJSON(w, map[string]string{
+			"code":    "INVALID_ARGUMENT",
+			"message": "failed to read uploaded file",
+		}, http.StatusBadRequest)
+		return
+	}
+
+	if len(content) == 0 || len(content) > maxDocumentSize {
+		util.WriteJSON(w, map[string]string{
+			"code":    "INVALID_ARGUMENT",
+			"message": "file must be between 1 byte and 1 MiB",
+		}, http.StatusBadRequest)
+		return
+	}
+
+	if http.DetectContentType(content) != "application/pdf" {
+		util.WriteJSON(w, map[string]string{
+			"code":    "INVALID_ARGUMENT",
+			"message": "only PDF files are supported",
+		}, http.StatusBadRequest)
+		return
+	}
+
+	fileName := filepath.Base(header.Filename)
+	if fileName == "." || fileName == "" {
+		util.WriteJSON(w, map[string]string{
+			"code":    "INVALID_ARGUMENT",
+			"message": "invalid file name",
+		}, http.StatusBadRequest)
+		return
+	}
+
+	req := &identitypb.UploadFileRequest{
+		UserId:     p.UserID,
+		FileName:   fileName,
+		MimeType:   identitypb.MimeType_MIME_TYPE_PDF,
+		ObjectType: identitypb.ObjectType_OBJECT_TYPE_RESOURCE_DOCUMENT,
+		Visibility: identitypb.ObjectVisibility_OBJECT_VISIBILITY_PRIVATE,
+		Content:    content,
+	}
+
+	if key := r.Header.Get("Idempotency-Key"); key != "" {
+		req.IdempotencyKey = &key
+	}
+
+	resp, err := h.Identity.UploadFile(meta(r), req)
+	call(w, resp, err)
+}
+
+func (h *Handler) GetDocument(w http.ResponseWriter, r *http.Request) {
+	p, ok := middleware.PrincipalFromContext(r.Context())
+	if !ok || p.UserID == "" {
+		writeForbidden(w, "authentication required")
+		return
+	}
+
+	objectID := r.PathValue("object_id")
+	if objectID == "" {
+		util.WriteJSON(w, map[string]string{
+			"code":    "INVALID_ARGUMENT",
+			"message": "object_id is required",
+		}, http.StatusBadRequest)
+		return
+	}
+
+	resp, err := h.Identity.GetFile(meta(r), &identitypb.GetFileRequest{
+		UserId:   p.UserID,
+		ObjectId: objectID,
+	})
+	if err != nil {
+		util.WriteGRPCError(w, err)
+		return
+	}
+
+	if resp == nil || resp.Object == nil || len(resp.Content) == 0 {
+		util.WriteJSON(w, map[string]string{
+			"code":    "NOT_FOUND",
+			"message": "document not found",
+		}, http.StatusNotFound)
+		return
+	}
+
+	fileName := filepath.Base(resp.Object.OriginalFileName)
+	if fileName == "." || fileName == "" {
+		fileName = "document.pdf"
+	}
+
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{
+		"filename": fileName,
+	}))
+	w.Header().Set("Content-Length", strconv.Itoa(len(resp.Content)))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(resp.Content)
+}
+
+func (h *Handler) DeleteDocument(w http.ResponseWriter, r *http.Request) {
+	p, ok := middleware.PrincipalFromContext(r.Context())
+	if !ok || p.UserID == "" {
+		writeForbidden(w, "authentication required")
+		return
+	}
+
+	objectID := r.PathValue("object_id")
+	if objectID == "" {
+		util.WriteJSON(w, map[string]string{
+			"code":    "INVALID_ARGUMENT",
+			"message": "object_id is required",
+		}, http.StatusBadRequest)
+		return
+	}
+
+	resp, err := h.Identity.DeleteFile(meta(r), &identitypb.DeleteFileRequest{
+		UserId:   p.UserID,
+		ObjectId: objectID,
 	})
 	call(w, resp, err)
 }

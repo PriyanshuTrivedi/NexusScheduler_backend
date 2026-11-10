@@ -2,7 +2,10 @@ load("@rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "store",
-    srcs = ["user.go"],
+    srcs = [
+        "object_storage.go",
+        "user.go",
+    ],
     importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/identity/store",
     visibility = ["//visibility:public"],
     deps = [
@@ -14,6 +17,14 @@ go_library(
 
 go_test(
     name = "store_test",
-    srcs = ["user_test.go"],
+    srcs = [
+        "object_storage_test.go",
+        "user_test.go",
+    ],
     embed = [":store"],
+    deps = [
+        "//code/identity/entity",
+        "@com_github_jackc_pgx_v5//:pgx",
+        "@com_github_stretchr_testify//require",
+    ],
 )

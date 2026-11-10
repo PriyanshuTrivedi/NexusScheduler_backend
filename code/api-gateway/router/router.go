@@ -16,6 +16,7 @@ type Config struct {
 
 func New(h *handler.Handler, auth *middleware.Verifier, limiter middleware.RateLimiter, cfg Config) http.Handler {
 	mux := http.NewServeMux()
+
 	public := func(n http.Handler) http.Handler {
 		return middleware.RateLimit(limiter, cfg.RateLimit, cfg.RateWindow, n)
 	}
@@ -58,6 +59,11 @@ func New(h *handler.Handler, auth *middleware.Verifier, limiter middleware.RateL
 	mux.Handle("PATCH /api/v1/resources/{resource_id}/status", resource(http.HandlerFunc(h.SetResourceStatus)))
 	mux.Handle("GET /api/v1/resources/{resource_id}", public(http.HandlerFunc(h.GetResourceById)))
 	mux.Handle("GET /api/v1/resources/{resource_id}/slots", public(http.HandlerFunc(h.GetSlotsByResourceId)))
+
+	// Resource documents.
+	mux.Handle("POST /api/v1/documents", resource(http.HandlerFunc(h.UploadDocument)))
+	mux.Handle("GET /api/v1/documents/{object_id}", resource(http.HandlerFunc(h.GetDocument)))
+	mux.Handle("DELETE /api/v1/documents/{object_id}", resource(http.HandlerFunc(h.DeleteDocument)))
 
 	mux.Handle("POST /api/v1/bookings", authn(http.HandlerFunc(h.CreateBooking)))
 	mux.Handle("POST /api/v1/bookings/{reference}/cancel", authn(http.HandlerFunc(h.CancelBooking)))

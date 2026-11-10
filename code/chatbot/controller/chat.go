@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/chunker"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/client"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/entity"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/prompt"
@@ -31,6 +32,8 @@ type Controller interface {
 	CloseConversation(ctx context.Context, req *entity.CloseConversationRequest) (*entity.CloseConversationResponse, error)
 	ListConversations(ctx context.Context, req *entity.ListConversationsRequest) (*entity.ListConversationsResponse, error)
 	GetMessages(ctx context.Context, req *entity.GetMessagesRequest) (*entity.GetMessagesResponse, error)
+	IndexDocuments(ctx context.Context, req *entity.IndexDocumentRequest) (*entity.IndexDocumentResponse, error)
+	DeleteDocumentIndex(ctx context.Context, req *entity.DeleteDocumentIndexRequest) (*entity.DeleteDocumentIndexResponse, error)
 }
 
 type RetryConfig struct {
@@ -42,14 +45,18 @@ type controller struct {
 	store       store.Store
 	llm         client.LLM
 	mcp         client.MCPClient
+	pinecone    client.PineconeClient
+	chunker     chunker.Chunker
 	retryConfig RetryConfig
 }
 
-func New(st store.Store, llm client.LLM, mcp client.MCPClient, retryConfig RetryConfig) Controller {
+func New(st store.Store, llm client.LLM, mcp client.MCPClient, pinecone client.PineconeClient, chunker chunker.Chunker, retryConfig RetryConfig) Controller {
 	return &controller{
 		store:       st,
 		llm:         llm,
 		mcp:         mcp,
+		pinecone:    pinecone,
+		chunker:     chunker,
 		retryConfig: retryConfig,
 	}
 }
@@ -355,5 +362,117 @@ func (c *controller) GetMessages(ctx context.Context, req *entity.GetMessagesReq
 
 	return &entity.GetMessagesResponse{
 		Messages: messages,
+	}, nil
+}
+
+func (c *controller) IndexDocuments(ctx context.Context, req *entity.IndexDocumentRequest) (*entity.IndexDocumentResponse, error) {
+	if err := util.ValidateIndexDocumentRequest(req); err != nil {
+		return nil, fmt.Errorf("controller: validate index document request: %w", err)
+	}
+
+	text, err := util.ExtractPDFText(req.Content)
+	if err != nil {
+		return nil, fmt.Errorf("controller: extract PDF text: %w", err)
+	}
+
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil, fmt.Errorf("controller: extracted PDF text is empty")
+	}
+
+	chunks, err := c.chunker.Chunk(text)
+	if err != nil {
+		return nil, fmt.Errorf("controller: chunk document: %w", err)
+	}
+
+	if len(chunks) == 0 {
+		return nil, fmt.Errorf("controller: document produced no chunks")
+	}
+
+	embeddings, err := c.generateEmbeddingsWithRetry(ctx, chunks)
+	if err != nil {
+		return nil, fmt.Errorf("controller: generate document embeddings: %w", err)
+	}
+
+	if len(embeddings) != len(chunks) {
+		return nil, fmt.Errorf(
+			"controller: embedding count mismatch: expected %d, got %d",
+			len(chunks),
+			len(embeddings),
+		)
+	}
+
+	vectors := util.BuildPineconeVectors(
+		req.ObjectID,
+		req.OwnerUserID,
+		req.IdempotencyKey,
+		embeddings,
+	)
+
+	upserted, err := c.pinecone.UpsertVectors(ctx, vectors)
+	if err != nil {
+		return nil, fmt.Errorf("controller: upsert document vectors: %w", err)
+	}
+
+	return &entity.IndexDocumentResponse{
+		Indexed:        true,
+		ChunksUpserted: int32(upserted),
+	}, nil
+}
+
+func (c *controller) generateEmbeddingsWithRetry(ctx context.Context, contents []string) ([]entity.Embedding, error) {
+	var embeddings []entity.Embedding
+	var err error
+
+	for attempt := 0; attempt <= c.retryConfig.MaxRetries; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		embeddings, err = c.llm.GenerateEmbeddings(ctx, contents)
+		if err == nil {
+			return embeddings, nil
+		}
+
+		var apiErr genai.APIError
+		if !errors.As(err, &apiErr) || apiErr.Code < 500 || apiErr.Code > 599 {
+			return nil, err
+		}
+
+		if attempt == c.retryConfig.MaxRetries {
+			break
+		}
+
+		maxDelay := c.retryConfig.BaseDelay * time.Duration(1<<attempt)
+		delay := time.Duration(rand.Int63n(int64(maxDelay) + 1))
+
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+
+	return nil, err
+}
+
+func (c *controller) DeleteDocumentIndex(ctx context.Context, req *entity.DeleteDocumentIndexRequest) (*entity.DeleteDocumentIndexResponse, error) {
+	if err := util.ValidateDeleteDocumentIndexRequest(req); err != nil {
+		return nil, fmt.Errorf("controller: validate delete document index request: %w", err)
+	}
+
+	filter := util.BuildPineconeDocumentFilter(
+		req.ObjectID,
+		req.OwnerUserID,
+	)
+
+	if err := c.pinecone.DeleteVectorsByFilter(ctx, filter); err != nil {
+		return nil, fmt.Errorf("controller: delete document vectors: %w", err)
+	}
+
+	return &entity.DeleteDocumentIndexResponse{
+		Deleted: true,
 	}, nil
 }

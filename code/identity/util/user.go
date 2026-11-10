@@ -1,8 +1,6 @@
 package util
 
 import (
-	"strings"
-
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/identity/entity"
 	identitypb "github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/identity"
 )
@@ -89,5 +87,3 @@ func UserToProto(u entity.User) *identitypb.User {
 	}
 	return out
 }
-
-func normalize(s string) string { return strings.TrimSpace(s) }

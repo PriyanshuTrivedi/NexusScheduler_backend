@@ -303,3 +303,90 @@ func TestGetMessages(t *testing.T) {
 		})
 	}
 }
+
+func TestIndexDocument(t *testing.T) {
+	tests := []struct {
+		name    string
+		resp    *entity.IndexDocumentResponse
+		err     error
+		wantErr codes.Code
+	}{
+		{name: "success", resp: &entity.IndexDocumentResponse{Indexed: true, ChunksUpserted: 4}},
+		{name: "controller error", err: assert.AnError, wantErr: codes.Internal},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockCtl := ctrlmocks.NewMockController(ctrl)
+			h := New(mockCtl)
+
+			content := []byte("%PDF-1.4")
+			mockCtl.EXPECT().
+				IndexDocuments(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, req *entity.IndexDocumentRequest) (*entity.IndexDocumentResponse, error) {
+					assert.Equal(t, "object-1", req.ObjectID)
+					assert.Equal(t, "user-1", req.OwnerUserID)
+					assert.Equal(t, "key-1", req.IdempotencyKey)
+					assert.Equal(t, entity.DocumentTypePDF, req.DocumentType)
+					assert.Equal(t, content, req.Content)
+					return tt.resp, tt.err
+				})
+
+			resp, err := h.IndexDocument(context.Background(), &chatbotpb.IndexDocumentRequest{
+				ObjectId: "object-1", OwnerUserId: "user-1", IdempotencyKey: "key-1",
+				DocumentType: chatbotpb.DocumentType_DOCUMENT_TYPE_PDF, Content: content,
+			})
+
+			if tt.wantErr != codes.OK {
+				assert.Nil(t, resp)
+				assert.Equal(t, tt.wantErr, status.Code(err))
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, &chatbotpb.IndexDocumentResponse{Indexed: true, ChunksUpserted: 4}, resp)
+		})
+	}
+}
+
+func TestDeleteDocumentIndex(t *testing.T) {
+	tests := []struct {
+		name    string
+		resp    *entity.DeleteDocumentIndexResponse
+		err     error
+		wantErr codes.Code
+	}{
+		{name: "success", resp: &entity.DeleteDocumentIndexResponse{Deleted: true}},
+		{name: "controller error", err: assert.AnError, wantErr: codes.Internal},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockCtl := ctrlmocks.NewMockController(ctrl)
+			h := New(mockCtl)
+
+			mockCtl.EXPECT().
+				DeleteDocumentIndex(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, req *entity.DeleteDocumentIndexRequest) (*entity.DeleteDocumentIndexResponse, error) {
+					assert.Equal(t, "object-1", req.ObjectID)
+					assert.Equal(t, "user-1", req.OwnerUserID)
+					return tt.resp, tt.err
+				})
+
+			resp, err := h.DeleteDocumentIndex(context.Background(), &chatbotpb.DeleteDocumentIndexRequest{
+				ObjectId: "object-1", OwnerUserId: "user-1",
+			})
+
+			if tt.wantErr != codes.OK {
+				assert.Nil(t, resp)
+				assert.Equal(t, tt.wantErr, status.Code(err))
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, &chatbotpb.DeleteDocumentIndexResponse{Deleted: true}, resp)
+		})
+	}
+}

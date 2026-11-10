@@ -47,6 +47,7 @@ type GeminiConfig struct {
 
 type PineconeConfig struct {
 	IndexHost string `yaml:"index_host"`
+	Namespace string `yaml:"namespace"`
 }
 
 type FixedSizeChunkingConfig struct {
@@ -109,6 +110,9 @@ func loadConfig() (Config, error) {
 	// Pinecone configs
 	if cfg.PineconeConfig.IndexHost == "" {
 		return Config{}, fmt.Errorf("chatbot: pinecone index_host is required")
+	}
+	if cfg.PineconeConfig.Namespace == "" {
+		return Config{}, fmt.Errorf("chatbot: pinecone namespace is required")
 	}
 
 	// MCP configs
@@ -192,6 +196,7 @@ func newPineconeClient(cfg Config) (client.PineconeClient, error) {
 	pineconeClient, err := client.NewPineconeClient(client.PineconeConfig{
 		APIKey:    configloader.MustGetEnv("PINECONE_API_KEY"),
 		IndexHost: cfg.PineconeConfig.IndexHost,
+		Namespace: cfg.PineconeConfig.Namespace,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("chatbot: initialize Pinecone client: %w", err)

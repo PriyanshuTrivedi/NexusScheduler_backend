@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
@@ -47,14 +46,14 @@ func New(apiKey, baseURL, bucket string) (Client, error) {
 }
 
 func (c *client) Upload(ctx context.Context, name, mimeType string, content []byte) (entity.DBByteFile, error) {
+	var quoteEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`)
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 
 	header := make(textproto.MIMEHeader)
-	header.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{
-		"name":     "file",
-		"filename": name,
-	}))
+	header.Set("Content-Disposition", fmt.Sprintf(
+		`form-data; name="file"; filename="%s"`, quoteEscaper.Replace(name),
+	))
 	header.Set("Content-Type", mimeType)
 
 	part, err := writer.CreatePart(header)

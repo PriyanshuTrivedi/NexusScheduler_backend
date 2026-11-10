@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/entity"
@@ -10,7 +11,10 @@ import (
 
 //go:generate mockgen -source=pinecone.go -destination=../../../gen/mocks/chatbot/client/pinecone_mock.go -package=mocks
 
-const maxUpsertBatchSize = 1000
+const (
+	maxUpsertBatchSize  = 1000
+	maxUpsertBatchBytes = 2 * 1024 * 1024
+)
 
 type PineconeClient interface {
 	UpsertVectors(ctx context.Context, vectors []entity.PineconeVector) (uint32, error)
@@ -20,6 +24,7 @@ type PineconeClient interface {
 type PineconeConfig struct {
 	APIKey    string
 	IndexHost string
+	Namespace string
 }
 
 type pineconeClient struct {
@@ -35,7 +40,8 @@ func NewPineconeClient(cfg PineconeConfig) (PineconeClient, error) {
 	}
 
 	index, err := client.Index(pineconesdk.NewIndexConnParams{
-		Host: cfg.IndexHost,
+		Host:      cfg.IndexHost,
+		Namespace: cfg.Namespace,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("connect to Pinecone index: %w", err)
@@ -47,51 +53,92 @@ func NewPineconeClient(cfg PineconeConfig) (PineconeClient, error) {
 }
 
 func (c *pineconeClient) UpsertVectors(ctx context.Context, vectors []entity.PineconeVector) (uint32, error) {
-	pineconeVectors := make([]*pineconesdk.Vector, 0, len(vectors))
+	if len(vectors) == 0 {
+		return 0, nil
+	}
+
+	documents := make([]pineconesdk.Document, 0, len(vectors))
 
 	for _, vector := range vectors {
-		metadata, err := pineconesdk.NewMetadata(vector.Metadata)
-		if err != nil {
-			return 0, fmt.Errorf("create metadata for vector %s: %w", vector.ID, err)
+		if vector.ID == "" {
+			return 0, fmt.Errorf("create Pinecone document: document ID is required")
+		}
+		if len(vector.Values) == 0 {
+			return 0, fmt.Errorf("create Pinecone document %s: embedding is required", vector.ID)
 		}
 
-		values := vector.Values
+		document := pineconesdk.Document{
+			"_id":       vector.ID,
+			"embedding": vector.Values,
+		}
 
-		pineconeVectors = append(pineconeVectors, &pineconesdk.Vector{
-			Id:       vector.ID,
-			Values:   &values,
-			Metadata: metadata,
-		})
+		for key, value := range vector.Metadata {
+			if key == "" || key == "_id" || key == "embedding" {
+				continue
+			}
+
+			document[key] = value
+		}
+
+		documents = append(documents, document)
 	}
 
 	var totalUpserted uint32
 
-	for start := 0; start < len(pineconeVectors); start += maxUpsertBatchSize {
-		end := min(start+maxUpsertBatchSize, len(pineconeVectors))
+	for start := 0; start < len(documents); {
+		end := start
+		batch := make([]pineconesdk.Document, 0)
 
-		upserted, err := c.index.UpsertVectors(ctx, pineconeVectors[start:end])
+		for end < len(documents) && len(batch) < maxUpsertBatchSize {
+			candidate := append(batch, documents[end])
+
+			payload, err := json.Marshal(candidate)
+			if err != nil {
+				return totalUpserted, fmt.Errorf("marshal Pinecone documents batch starting at %d: %w", start, err)
+			}
+
+			if len(payload) > maxUpsertBatchBytes {
+				if len(batch) == 0 {
+					return totalUpserted, fmt.Errorf(
+						"Pinecone document %s exceeds the 2 MiB request limit",
+						documents[end]["_id"],
+					)
+				}
+				break
+			}
+
+			batch = candidate
+			end++
+		}
+
+		response, err := c.index.UpsertDocuments(ctx, &pineconesdk.UpsertDocumentsRequest{
+			Documents: batch,
+		})
 		if err != nil {
 			return totalUpserted, fmt.Errorf(
-				"upsert vectors batch starting at %d: %w",
+				"upsert documents batch starting at %d: %w",
 				start,
 				err,
 			)
 		}
 
-		totalUpserted += upserted
+		totalUpserted += uint32(response.UpsertedCount)
+		start = end
 	}
 
 	return totalUpserted, nil
 }
 
 func (c *pineconeClient) DeleteVectorsByFilter(ctx context.Context, filter entity.PineconeFilter) error {
-	pineconeFilter, err := pineconesdk.NewMetadataFilter(map[string]interface{}(filter))
-	if err != nil {
-		return fmt.Errorf("create Pinecone metadata filter: %w", err)
+	if len(filter) == 0 {
+		return fmt.Errorf("Pinecone delete filter cannot be empty")
 	}
 
-	if err := c.index.DeleteVectorsByFilter(ctx, pineconeFilter); err != nil {
-		return fmt.Errorf("delete vectors from Pinecone: %w", err)
+	_, err := c.index.DeleteDocuments(ctx, &pineconesdk.DeleteDocumentsRequest{
+		Filter: map[string]interface{}(filter),
+	})
+	if err != nil {
+		return fmt.Errorf("delete documents from Pinecone: %w", err)
 	}
 
 	return nil

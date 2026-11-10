@@ -27,6 +27,7 @@ go_test(
     deps = [
         "//code/chatbot/entity",
         "@com_github_modelcontextprotocol_go_sdk//mcp",
+        "@com_github_pinecone_io_go_pinecone_v7//pinecone",
         "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",
         "@org_golang_google_grpc//metadata",

@@ -50,7 +50,7 @@ func (s *pgObjectStorageStore) CreateObject(ctx context.Context, object entity.O
 			idempotency_key,
 			content_sha256
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, '')::uuid, $10)
 		RETURNING id::text, created_at, updated_at`,
 		object.UserID,
 		object.ObjectType,

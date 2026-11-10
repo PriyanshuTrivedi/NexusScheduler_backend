@@ -29,4 +29,5 @@ chunking:
     min_chunk_size: 50
 
 pinecone:
-  index_host: your-pinecone-index-host
+  index_host: https://nexus-schedular-t7xqywr.svc.aped-4627-b74a.pinecone.io
+  namespace: resource-docs

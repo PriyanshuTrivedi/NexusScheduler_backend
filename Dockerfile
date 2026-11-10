@@ -1,5 +1,5 @@
 # ---- Build stage ----
-FROM golang:1.25-bookworm AS builder
+FROM golang:1-bookworm AS builder
 
 # protoc + Go plugins, needed because gen/ (proto output) is .gitignored
 # and isn't committed to the repo — it has to be regenerated at build time.

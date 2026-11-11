@@ -114,3 +114,61 @@ func TestUploadFileRequestToEntity_NilRequest(t *testing.T) {
 	_, err := UploadFileRequestToEntity(nil)
 	require.Error(t, err)
 }
+
+func TestListFilesRequestToEntity(t *testing.T) {
+	req := &pb.ListFilesRequest{
+		UserId:     testUserIDForUtil,
+		ObjectType: pb.ObjectType_OBJECT_TYPE_RESOURCE_DOCUMENT,
+	}
+
+	got := ListFilesRequestToEntity(req)
+
+	require.Equal(t, entity.ListFilesRequest{
+		CallerID:   testUserIDForUtil,
+		ObjectType: entity.ObjectTypeResourceDocument,
+	}, got)
+}
+
+func TestListFilesResponseToProto(t *testing.T) {
+	createdAt := time.Unix(100, 0)
+	updatedAt := time.Unix(200, 0)
+
+	response := entity.ListFilesResponse{
+		Objects: []entity.ObjectMetadata{
+			{
+				ID:               "object-1",
+				UserID:           testUserIDForUtil,
+				ObjectType:       entity.ObjectTypeResourceDocument,
+				Visibility:       entity.ObjectVisibilityPrivate,
+				OriginalFileName: "resume.pdf",
+				MIMEType:         entity.MIMETypePDF,
+				SizeBytes:        12345,
+				CreatedAt:        createdAt,
+				UpdatedAt:        updatedAt,
+			},
+		},
+	}
+
+	got := ListFilesResponseToProto(response)
+
+	require.Len(t, got.Objects, 1)
+
+	object := got.Objects[0]
+
+	require.Equal(t, "object-1", object.ObjectId)
+	require.Equal(t, testUserIDForUtil, object.OwnerUserId)
+	require.Equal(t, pb.ObjectType_OBJECT_TYPE_RESOURCE_DOCUMENT, object.ObjectType)
+	require.Equal(t, pb.ObjectVisibility_OBJECT_VISIBILITY_PRIVATE, object.Visibility)
+	require.Equal(t, "resume.pdf", object.OriginalFileName)
+	require.Equal(t, pb.MimeType_MIME_TYPE_PDF, object.MimeType)
+	require.Equal(t, int64(12345), object.SizeBytes)
+	require.Equal(t, int64(100), object.CreatedAtUnix)
+	require.Equal(t, int64(200), object.UpdatedAtUnix)
+}
+
+func TestListFilesResponseToProto_Empty(t *testing.T) {
+	got := ListFilesResponseToProto(entity.ListFilesResponse{})
+
+	require.NotNil(t, got)
+	require.Empty(t, got.Objects)
+}

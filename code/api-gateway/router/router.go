@@ -61,6 +61,7 @@ func New(h *handler.Handler, auth *middleware.Verifier, limiter middleware.RateL
 	mux.Handle("GET /api/v1/resources/{resource_id}/slots", public(http.HandlerFunc(h.GetSlotsByResourceId)))
 
 	// Resource documents.
+	mux.Handle("GET /api/v1/documents", resource(http.HandlerFunc(h.ListDocuments)))
 	mux.Handle("POST /api/v1/documents", resource(http.HandlerFunc(h.UploadDocument)))
 	mux.Handle("GET /api/v1/documents/{object_id}", resource(http.HandlerFunc(h.GetDocument)))
 	mux.Handle("DELETE /api/v1/documents/{object_id}", resource(http.HandlerFunc(h.DeleteDocument)))

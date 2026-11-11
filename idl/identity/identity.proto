@@ -283,6 +283,15 @@ message DeleteFileResponse {
   bool deleted = 1;
 }
 
+message ListFilesRequest {
+  string user_id = 1;
+  ObjectType object_type = 2;
+}
+
+message ListFilesResponse {
+  repeated ObjectMetadata objects = 1;
+}
+
 service IdentityService {
   rpc CreateOrganization(CreateOrganizationRequest) returns (CreateOrganizationResponse);
   rpc UpdateOrganization(UpdateOrganizationRequest) returns (UpdateOrganizationResponse);
@@ -309,4 +318,5 @@ service IdentityService {
   rpc UploadFile(UploadFileRequest) returns (UploadFileResponse);
   rpc GetFile(GetFileRequest) returns (GetFileResponse);
   rpc DeleteFile(DeleteFileRequest) returns (DeleteFileResponse);
+  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
 }

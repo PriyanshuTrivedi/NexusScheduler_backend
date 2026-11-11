@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/identity/entity"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/gen/idl/identity"
@@ -143,4 +144,100 @@ func TestDeleteFile(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, resp.Deleted)
+}
+
+func TestListFiles(t *testing.T) {
+	h, _, objectController := newTestHandler(t)
+
+	userID := "11111111-1111-4111-8111-111111111111"
+	objectID := "33333333-3333-4333-8333-333333333333"
+	createdAt := time.Unix(100, 0)
+	updatedAt := time.Unix(200, 0)
+
+	objectController.EXPECT().
+		ListFiles(gomock.Any(), entity.ListFilesRequest{
+			CallerID:   userID,
+			ObjectType: entity.ObjectTypeResourceDocument,
+		}).
+		Return(entity.ListFilesResponse{
+			Objects: []entity.ObjectMetadata{
+				{
+					ID:               objectID,
+					UserID:           userID,
+					ObjectType:       entity.ObjectTypeResourceDocument,
+					Visibility:       entity.ObjectVisibilityPrivate,
+					OriginalFileName: "resume.pdf",
+					MIMEType:         entity.MIMETypePDF,
+					SizeBytes:        12345,
+					CreatedAt:        createdAt,
+					UpdatedAt:        updatedAt,
+				},
+			},
+		}, nil)
+
+	resp, err := h.ListFiles(context.Background(), &identity.ListFilesRequest{
+		UserId:     userID,
+		ObjectType: identity.ObjectType_OBJECT_TYPE_RESOURCE_DOCUMENT,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Len(t, resp.Objects, 1)
+
+	object := resp.Objects[0]
+	require.Equal(t, objectID, object.ObjectId)
+	require.Equal(t, userID, object.OwnerUserId)
+	require.Equal(t, identity.ObjectType_OBJECT_TYPE_RESOURCE_DOCUMENT, object.ObjectType)
+	require.Equal(t, identity.ObjectVisibility_OBJECT_VISIBILITY_PRIVATE, object.Visibility)
+	require.Equal(t, "resume.pdf", object.OriginalFileName)
+	require.Equal(t, identity.MimeType_MIME_TYPE_PDF, object.MimeType)
+	require.Equal(t, int64(12345), object.SizeBytes)
+	require.Equal(t, int64(100), object.CreatedAtUnix)
+	require.Equal(t, int64(200), object.UpdatedAtUnix)
+}
+
+func TestListFiles_EmptyList(t *testing.T) {
+	h, _, objectController := newTestHandler(t)
+
+	userID := "11111111-1111-4111-8111-111111111111"
+
+	objectController.EXPECT().
+		ListFiles(gomock.Any(), entity.ListFilesRequest{
+			CallerID:   userID,
+			ObjectType: entity.ObjectTypeResourceDocument,
+		}).
+		Return(entity.ListFilesResponse{
+			Objects: []entity.ObjectMetadata{},
+		}, nil)
+
+	resp, err := h.ListFiles(context.Background(), &identity.ListFilesRequest{
+		UserId:     userID,
+		ObjectType: identity.ObjectType_OBJECT_TYPE_RESOURCE_DOCUMENT,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Empty(t, resp.Objects)
+}
+
+func TestListFiles_ControllerError(t *testing.T) {
+	h, _, objectController := newTestHandler(t)
+
+	userID := "11111111-1111-4111-8111-111111111111"
+	controllerErr := errors.New("list files failed")
+
+	objectController.EXPECT().
+		ListFiles(gomock.Any(), entity.ListFilesRequest{
+			CallerID:   userID,
+			ObjectType: entity.ObjectTypeResourceDocument,
+		}).
+		Return(entity.ListFilesResponse{}, controllerErr)
+
+	resp, err := h.ListFiles(context.Background(), &identity.ListFilesRequest{
+		UserId:     userID,
+		ObjectType: identity.ObjectType_OBJECT_TYPE_RESOURCE_DOCUMENT,
+	})
+
+	require.ErrorIs(t, err, controllerErr)
+	require.Nil(t, resp)
 }

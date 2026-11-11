@@ -9,7 +9,6 @@ go_library(
         "//code/chatbot/chunker",
         "//code/chatbot/client",
         "//code/chatbot/entity",
-        "//code/chatbot/prompt",
         "//code/chatbot/store",
         "//code/chatbot/util",
         "@org_golang_google_genai//:genai",

@@ -25,10 +25,13 @@ func TestController_SendMessage_Success(t *testing.T) {
 	mockStore := storemocks.NewMockStore(ctrl)
 	mockLLM := clientmocks.NewMockLLM(ctrl)
 	mockMCP := clientmocks.NewMockMCPClient(ctrl)
+	mockPinecone := clientmocks.NewMockPineconeClient(ctrl)
 
-	controller := New(mockStore, mockLLM, mockMCP, nil, nil, RetryConfig{})
+	controller := New(mockStore, mockLLM, mockMCP, mockPinecone, nil, RetryConfig{})
 
 	ctx := context.Background()
+	expectEmptyRetrievedContext(mockLLM, mockPinecone, ctx, "Hello")
+
 	userID := "user-123"
 	conversationID := "conversation-123"
 	now := time.Now()
@@ -111,10 +114,13 @@ func TestController_SendMessage_CreateNewConversation(t *testing.T) {
 	mockStore := storemocks.NewMockStore(ctrl)
 	mockLLM := clientmocks.NewMockLLM(ctrl)
 	mockMCP := clientmocks.NewMockMCPClient(ctrl)
+	mockPinecone := clientmocks.NewMockPineconeClient(ctrl)
 
-	controller := New(mockStore, mockLLM, mockMCP, nil, nil, RetryConfig{})
+	controller := New(mockStore, mockLLM, mockMCP, mockPinecone, nil, RetryConfig{})
 
 	ctx := context.Background()
+	expectEmptyRetrievedContext(mockLLM, mockPinecone, ctx, "Hello")
+
 	userID := "user-123"
 	conversationID := "new-conversation-123"
 	now := time.Now()
@@ -201,8 +207,11 @@ func TestController_SendMessage_GenerateReplyError(t *testing.T) {
 	mockStore := storemocks.NewMockStore(ctrl)
 	mockLLM := clientmocks.NewMockLLM(ctrl)
 	mockMCP := clientmocks.NewMockMCPClient(ctrl)
+	mockPinecone := clientmocks.NewMockPineconeClient(ctrl)
 
-	controller := New(mockStore, mockLLM, mockMCP, nil, nil, RetryConfig{})
+	controller := New(mockStore, mockLLM, mockMCP, mockPinecone, nil, RetryConfig{})
+
+	ctx := context.Background()
 
 	conversation := &entity.Conversation{
 		ID:        "conversation-123",
@@ -211,18 +220,20 @@ func TestController_SendMessage_GenerateReplyError(t *testing.T) {
 	}
 
 	mockStore.EXPECT().
-		GetActiveConversation(gomock.Any(), "user-123").
+		GetActiveConversation(ctx, "user-123").
 		Return(conversation, nil)
 
 	mockStore.EXPECT().
-		GetMessages(gomock.Any(), "user-123", "conversation-123").
+		GetMessages(ctx, "user-123", "conversation-123").
 		Return([]*entity.Message{}, nil)
 
+	expectEmptyRetrievedContext(mockLLM, mockPinecone, ctx, "Hello")
+
 	mockMCP.EXPECT().
-		ListTools(gomock.Any()).
+		ListTools(ctx).
 		Return(nil, errors.New("MCP unavailable"))
 
-	response, err := controller.SendMessage(context.Background(), &entity.SendMessageRequest{
+	response, err := controller.SendMessage(ctx, &entity.SendMessageRequest{
 		UserID:  "user-123",
 		Message: "Hello",
 	})
@@ -236,10 +247,13 @@ func TestController_SendMessage_IdleConversation(t *testing.T) {
 	mockStore := storemocks.NewMockStore(ctrl)
 	mockLLM := clientmocks.NewMockLLM(ctrl)
 	mockMCP := clientmocks.NewMockMCPClient(ctrl)
+	mockPinecone := clientmocks.NewMockPineconeClient(ctrl)
 
-	controller := New(mockStore, mockLLM, mockMCP, nil, nil, RetryConfig{})
+	controller := New(mockStore, mockLLM, mockMCP, mockPinecone, nil, RetryConfig{})
 
 	ctx := context.Background()
+	expectEmptyRetrievedContext(mockLLM, mockPinecone, ctx, "Hello again")
+
 	userID := "user-123"
 	conversationID := "new-conversation-123"
 	now := time.Now()
@@ -316,10 +330,13 @@ func TestController_SendMessage_ToolExecution(t *testing.T) {
 	mockStore := storemocks.NewMockStore(ctrl)
 	mockLLM := clientmocks.NewMockLLM(ctrl)
 	mockMCP := clientmocks.NewMockMCPClient(ctrl)
+	mockPinecone := clientmocks.NewMockPineconeClient(ctrl)
 
-	controller := New(mockStore, mockLLM, mockMCP, nil, nil, RetryConfig{})
+	controller := New(mockStore, mockLLM, mockMCP, mockPinecone, nil, RetryConfig{})
 
 	ctx := context.Background()
+	expectEmptyRetrievedContext(mockLLM, mockPinecone, ctx, "Check my booking")
+
 	now := time.Now()
 
 	conversation := &entity.Conversation{
@@ -412,13 +429,16 @@ func TestController_SendMessage_RetryServerError(t *testing.T) {
 	mockStore := storemocks.NewMockStore(ctrl)
 	mockLLM := clientmocks.NewMockLLM(ctrl)
 	mockMCP := clientmocks.NewMockMCPClient(ctrl)
+	mockPinecone := clientmocks.NewMockPineconeClient(ctrl)
 
-	controller := New(mockStore, mockLLM, mockMCP, nil, nil, RetryConfig{
+	controller := New(mockStore, mockLLM, mockMCP, mockPinecone, nil, RetryConfig{
 		MaxRetries: 1,
 		BaseDelay:  time.Nanosecond,
 	})
 
 	ctx := context.Background()
+	expectEmptyRetrievedContext(mockLLM, mockPinecone, ctx, "Hello")
+
 	now := time.Now()
 
 	conversation := &entity.Conversation{
@@ -613,6 +633,104 @@ func TestController_GetMessages_Success(t *testing.T) {
 	assert.Equal(t, expectedMessages, response.Messages)
 }
 
+func expectEmptyRetrievedContext(
+	mockLLM *clientmocks.MockLLM,
+	mockPinecone *clientmocks.MockPineconeClient,
+	ctx context.Context,
+	query string,
+) {
+	embedding := entity.Embedding{
+		Vector: []float32{0.1, 0.2},
+	}
+
+	mockLLM.EXPECT().
+		GenerateEmbeddings(ctx, []string{query}).
+		Return([]entity.Embedding{embedding}, nil)
+
+	mockPinecone.EXPECT().
+		SearchVectors(ctx, embedding.Vector).
+		Return([]string{}, nil)
+}
+
+func TestController_SendMessage_IncludesRetrievedContext(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockStore := storemocks.NewMockStore(ctrl)
+	mockLLM := clientmocks.NewMockLLM(ctrl)
+	mockMCP := clientmocks.NewMockMCPClient(ctrl)
+	mockPinecone := clientmocks.NewMockPineconeClient(ctrl)
+
+	ctx := context.Background()
+	now := time.Now()
+	query := "Tell me about the clinic facilities"
+	retrievedChunks := []string{
+		"Our clinic provides in-house medicine facilities.",
+		"The clinic has four beds for patient care.",
+	}
+	embedding := entity.Embedding{
+		Vector: []float32{0.1, 0.2},
+	}
+
+	conversation := &entity.Conversation{
+		ID:        "conversation-123",
+		UserID:    "user-123",
+		Status:    entity.StatusActive,
+		UpdatedAt: now,
+	}
+
+	mockStore.EXPECT().
+		GetActiveConversation(ctx, "user-123").
+		Return(conversation, nil)
+
+	mockStore.EXPECT().
+		GetMessages(ctx, "user-123", conversation.ID).
+		Return([]*entity.Message{}, nil)
+
+	mockLLM.EXPECT().
+		GenerateEmbeddings(ctx, []string{query}).
+		Return([]entity.Embedding{embedding}, nil)
+
+	mockPinecone.EXPECT().
+		SearchVectors(ctx, embedding.Vector).
+		Return(retrievedChunks, nil)
+
+	mockMCP.EXPECT().
+		ListTools(ctx).
+		Return([]entity.Tool{}, nil)
+
+	mockLLM.EXPECT().
+		GenerateResponse(ctx, gomock.Any()).
+		DoAndReturn(func(_ context.Context, request entity.LLMRequest) (*entity.LLMResponse, error) {
+			assert.Contains(t, request.SystemInstruction, retrievedChunks[0])
+			assert.Contains(t, request.SystemInstruction, retrievedChunks[1])
+
+			return &entity.LLMResponse{
+				Text: "The clinic provides in-house medicine facilities and has four beds.",
+			}, nil
+		})
+
+	mockStore.EXPECT().
+		CreateMessage(ctx, conversation.ID, gomock.Any(), "").
+		Return(&entity.Message{Role: entity.RoleUser}, nil)
+
+	mockStore.EXPECT().
+		CreateMessage(ctx, conversation.ID, gomock.Any(), "").
+		Return(&entity.Message{
+			Role:    entity.RoleAssistant,
+			Content: "The clinic provides in-house medicine facilities and has four beds.",
+		}, nil)
+
+	controller := New(mockStore, mockLLM, mockMCP, mockPinecone, nil, RetryConfig{})
+
+	response, err := controller.SendMessage(ctx, &entity.SendMessageRequest{
+		UserID:  "user-123",
+		Message: query,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, response)
+	assert.Contains(t, response.AssistantMessage.Content, "four beds")
+}
+
 func makeControllerTestPDF(text string) []byte {
 	var buffer bytes.Buffer
 	offsets := []int{0}
@@ -620,7 +738,6 @@ func makeControllerTestPDF(text string) []byte {
 		offsets = append(offsets, buffer.Len())
 		fmt.Fprintf(&buffer, "%d 0 obj\n%s\nendobj\n", id, body)
 	}
-
 	buffer.WriteString("%PDF-1.4\n")
 	writeObject(1, "<< /Type /Catalog /Pages 2 0 R >>")
 	writeObject(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")

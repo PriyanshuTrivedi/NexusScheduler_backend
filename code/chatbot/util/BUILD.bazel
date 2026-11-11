@@ -8,11 +8,13 @@ go_library(
         "llm.go",
         "pdfconverter.go",
         "pinecone.go",
+        "prompt.go",
     ],
     importpath = "github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/util",
     visibility = ["//visibility:public"],
     deps = [
         "//code/chatbot/entity",
+        "//code/chatbot/prompt",
         "//code/chatbot/store",
         "//gen/idl/chatbot",
         "@com_github_ledongthuc_pdf//:pdf",

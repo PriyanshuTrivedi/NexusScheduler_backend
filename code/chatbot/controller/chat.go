@@ -12,7 +12,6 @@ import (
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/chunker"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/client"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/entity"
-	"github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/prompt"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/store"
 	"github.com/PriyanshuTrivedi/nexus-scheduler/code/chatbot/util"
 	"google.golang.org/genai"
@@ -105,7 +104,12 @@ func (c *controller) SendMessage(ctx context.Context, req *entity.SendMessageReq
 	}
 	history = append(history, userMessage)
 
-	reply, err := c.generateReplyWithTools(ctx, history)
+	retrievedContext, err := c.retrieveContext(ctx, req.Message)
+	if err != nil {
+		return nil, fmt.Errorf("controller: retrieve document context: %w", err)
+	}
+
+	reply, err := c.generateReplyWithTools(ctx, history, retrievedContext)
 	if err != nil {
 		return nil, fmt.Errorf("controller: generate reply: %w", err)
 	}
@@ -146,7 +150,7 @@ func (c *controller) SendMessage(ctx context.Context, req *entity.SendMessageReq
 	}, nil
 }
 
-func (c *controller) generateReplyWithTools(ctx context.Context, history []entity.Message) (string, error) {
+func (c *controller) generateReplyWithTools(ctx context.Context, history []entity.Message, retrievedContext string) (string, error) {
 	tools, err := c.mcp.ListTools(ctx)
 	if err != nil {
 		return "", fmt.Errorf("list MCP tools: %w", err)
@@ -169,7 +173,7 @@ func (c *controller) generateReplyWithTools(ctx context.Context, history []entit
 		response, err := c.generateResponseWithRetry(ctx, entity.LLMRequest{
 			Messages:          messages,
 			Tools:             tools,
-			SystemInstruction: prompt.SystemInstruction,
+			SystemInstruction: util.BuildSystemInstruction(retrievedContext),
 		})
 		if err != nil {
 			return "", fmt.Errorf("generate LLM response: %w", err)
@@ -475,4 +479,21 @@ func (c *controller) DeleteDocumentIndex(ctx context.Context, req *entity.Delete
 	return &entity.DeleteDocumentIndexResponse{
 		Deleted: true,
 	}, nil
+}
+
+func (c *controller) retrieveContext(ctx context.Context, query string) (string, error) {
+	embeddings, err := c.llm.GenerateEmbeddings(ctx, []string{query})
+	if err != nil {
+		return "", fmt.Errorf("generate query embedding: %w", err)
+	}
+	if len(embeddings) != 1 {
+		return "", fmt.Errorf("expected one query embedding, got %d", len(embeddings))
+	}
+
+	chunks, err := c.pinecone.SearchVectors(ctx, embeddings[0].Vector)
+	if err != nil {
+		return "", fmt.Errorf("search relevant document chunks: %w", err)
+	}
+
+	return strings.Join(chunks, "\n\n"), nil
 }

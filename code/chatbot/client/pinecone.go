@@ -19,16 +19,19 @@ const (
 type PineconeClient interface {
 	UpsertVectors(ctx context.Context, vectors []entity.PineconeVector) (uint32, error)
 	DeleteVectorsByFilter(ctx context.Context, filter entity.PineconeFilter) error
+	SearchVectors(ctx context.Context, vector []float32) ([]string, error)
 }
 
 type PineconeConfig struct {
 	APIKey    string
 	IndexHost string
 	Namespace string
+	TopK      int32
 }
 
 type pineconeClient struct {
 	index *pineconesdk.IndexConnection
+	topK  int32
 }
 
 func NewPineconeClient(cfg PineconeConfig) (PineconeClient, error) {
@@ -49,6 +52,7 @@ func NewPineconeClient(cfg PineconeConfig) (PineconeClient, error) {
 
 	return &pineconeClient{
 		index: index,
+		topK:  cfg.TopK,
 	}, nil
 }
 
@@ -142,4 +146,35 @@ func (c *pineconeClient) DeleteVectorsByFilter(ctx context.Context, filter entit
 	}
 
 	return nil
+}
+
+func (c *pineconeClient) SearchVectors(ctx context.Context, vector []float32) ([]string, error) {
+	if len(vector) == 0 {
+		return nil, fmt.Errorf("query embedding cannot be empty")
+	}
+
+	response, err := c.index.SearchDocuments(ctx, &pineconesdk.SearchDocumentsRequest{
+		TopK: c.topK,
+		ScoreBy: []pineconesdk.DocumentScoringMethod{
+			{
+				Type:   pineconesdk.DocumentScoringTypeDenseVector,
+				Fields: []string{"embedding"},
+				Values: &vector,
+			},
+		},
+		IncludeFields: []string{"content"},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("search documents in Pinecone: %w", err)
+	}
+
+	chunks := make([]string, 0, len(response.Matches))
+	for _, match := range response.Matches {
+		content, ok := match.Fields["content"].(string)
+		if ok && content != "" {
+			chunks = append(chunks, content)
+		}
+	}
+
+	return chunks, nil
 }

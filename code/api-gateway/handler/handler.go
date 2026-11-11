@@ -1394,3 +1394,18 @@ func (h *Handler) DeleteDocument(w http.ResponseWriter, r *http.Request) {
 	})
 	call(w, resp, err)
 }
+
+func (h *Handler) ListDocuments(w http.ResponseWriter, r *http.Request) {
+	p, ok := middleware.PrincipalFromContext(r.Context())
+	if !ok || p.UserID == "" {
+		writeForbidden(w, "authentication required")
+		return
+	}
+
+	resp, err := h.Identity.ListFiles(meta(r), &identitypb.ListFilesRequest{
+		UserId:     p.UserID,
+		ObjectType: identitypb.ObjectType_OBJECT_TYPE_RESOURCE_DOCUMENT,
+	})
+
+	call(w, resp, err)
+}

@@ -901,3 +901,121 @@ func TestDeleteDocument_MissingObjectID(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
+
+func TestListDocuments(t *testing.T) {
+	h, identity, _, _, _ := newHandlerTest(t)
+
+	req := authenticatedRequest(
+		t,
+		http.MethodGet,
+		"/api/v1/documents",
+		"",
+		resourcePrincipal(),
+	)
+
+	identity.EXPECT().
+		ListFiles(gomock.Any(), &identitypb.ListFilesRequest{
+			UserId:     "resource-user",
+			ObjectType: identitypb.ObjectType_OBJECT_TYPE_RESOURCE_DOCUMENT,
+		}, gomock.Any()).
+		Return(&identitypb.ListFilesResponse{
+			Objects: []*identitypb.ObjectMetadata{
+				{
+					ObjectId:         "object-1",
+					OwnerUserId:      "resource-user",
+					ObjectType:       identitypb.ObjectType_OBJECT_TYPE_RESOURCE_DOCUMENT,
+					Visibility:       identitypb.ObjectVisibility_OBJECT_VISIBILITY_PRIVATE,
+					OriginalFileName: "resume.pdf",
+					MimeType:         identitypb.MimeType_MIME_TYPE_PDF,
+					SizeBytes:        12345,
+					CreatedAtUnix:    100,
+					UpdatedAtUnix:    200,
+				},
+			},
+		}, nil)
+
+	rr := httptest.NewRecorder()
+	h.ListDocuments(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Contains(t, rr.Body.String(), "object-1")
+	assert.Contains(t, rr.Body.String(), "resume.pdf")
+	assert.Contains(t, rr.Body.String(), "12345")
+}
+
+func TestListDocuments_EmptyList(t *testing.T) {
+	h, identity, _, _, _ := newHandlerTest(t)
+
+	req := authenticatedRequest(
+		t,
+		http.MethodGet,
+		"/api/v1/documents",
+		"",
+		resourcePrincipal(),
+	)
+
+	identity.EXPECT().
+		ListFiles(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&identitypb.ListFilesResponse{}, nil)
+
+	rr := httptest.NewRecorder()
+	h.ListDocuments(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestListDocuments_Unauthenticated(t *testing.T) {
+	h, _, _, _, _ := newHandlerTest(t)
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/documents",
+		nil,
+	)
+
+	rr := httptest.NewRecorder()
+	h.ListDocuments(rr, req)
+
+	assert.Equal(t, http.StatusForbidden, rr.Code)
+}
+
+func TestListDocuments_MissingUserID(t *testing.T) {
+	h, _, _, _, _ := newHandlerTest(t)
+
+	principal := resourcePrincipal()
+	principal.UserID = ""
+
+	req := authenticatedRequest(
+		t,
+		http.MethodGet,
+		"/api/v1/documents",
+		"",
+		principal,
+	)
+
+	rr := httptest.NewRecorder()
+	h.ListDocuments(rr, req)
+
+	assert.Equal(t, http.StatusForbidden, rr.Code)
+}
+
+func TestListDocuments_IdentityServiceError(t *testing.T) {
+	h, identity, _, _, _ := newHandlerTest(t)
+
+	req := authenticatedRequest(
+		t,
+		http.MethodGet,
+		"/api/v1/documents",
+		"",
+		resourcePrincipal(),
+	)
+
+	identity.EXPECT().
+		ListFiles(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, status.Error(codes.Internal, "database unavailable"))
+
+	rr := httptest.NewRecorder()
+	h.ListDocuments(rr, req)
+
+	assert.NotEqual(t, http.StatusOK, rr.Code)
+}

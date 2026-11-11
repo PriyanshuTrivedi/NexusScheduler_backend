@@ -89,6 +89,15 @@ type DeleteFileResponse struct {
 	Deleted bool
 }
 
+type ListFilesRequest struct {
+	CallerID   string
+	ObjectType string
+}
+
+type ListFilesResponse struct {
+	Objects []ObjectMetadata
+}
+
 func (req *UploadFileRequest) NormalizeAndValidate() error {
 	req.UserID = strings.TrimSpace(req.UserID)
 	req.FileName = strings.TrimSpace(req.FileName)

@@ -140,3 +140,14 @@ func (h *Handler) DeleteFile(ctx context.Context, req *pb.DeleteFileRequest) (*p
 
 	return util.DeleteFileResponseToProto(response), nil
 }
+
+func (h *Handler) ListFiles(ctx context.Context, req *pb.ListFilesRequest) (*pb.ListFilesResponse, error) {
+	request := util.ListFilesRequestToEntity(req)
+
+	response, err := h.objectStorageController.ListFiles(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+
+	return util.ListFilesResponseToProto(response), nil
+}

@@ -145,3 +145,22 @@ func MimeTypeToProto(mimeType string) identitypb.MimeType {
 		return identitypb.MimeType_MIME_TYPE_UNSPECIFIED
 	}
 }
+
+func ListFilesRequestToEntity(req *identitypb.ListFilesRequest) entity.ListFilesRequest {
+	return entity.ListFilesRequest{
+		CallerID:   req.GetUserId(),
+		ObjectType: ObjectTypeFromProto(req.GetObjectType()),
+	}
+}
+
+func ListFilesResponseToProto(response entity.ListFilesResponse) *identitypb.ListFilesResponse {
+	objects := make([]*identitypb.ObjectMetadata, 0, len(response.Objects))
+
+	for _, object := range response.Objects {
+		objects = append(objects, ObjectMetadataToProto(object))
+	}
+
+	return &identitypb.ListFilesResponse{
+		Objects: objects,
+	}
+}

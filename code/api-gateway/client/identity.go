@@ -26,4 +26,5 @@ type IdentityClient interface {
 	UploadFile(context.Context, *pb.UploadFileRequest, ...grpc.CallOption) (*pb.UploadFileResponse, error)
 	GetFile(context.Context, *pb.GetFileRequest, ...grpc.CallOption) (*pb.GetFileResponse, error)
 	DeleteFile(context.Context, *pb.DeleteFileRequest, ...grpc.CallOption) (*pb.DeleteFileResponse, error)
+	ListFiles(context.Context, *pb.ListFilesRequest, ...grpc.CallOption) (*pb.ListFilesResponse, error)
 }

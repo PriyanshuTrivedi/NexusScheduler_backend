@@ -20,6 +20,7 @@ var (
 type ObjectStorageStore interface {
 	CreateObject(ctx context.Context, object entity.ObjectMetadata) (entity.ObjectMetadata, error)
 	GetObject(ctx context.Context, id string) (entity.ObjectMetadata, error)
+	ListObjects(ctx context.Context, userID, objectType string) ([]entity.ObjectMetadata, error)
 	GetObjectByIdempotencyKey(ctx context.Context, userID, key string) (entity.ObjectMetadata, error)
 	MarkObjectIndexed(ctx context.Context, id string) error
 	DeleteObject(ctx context.Context, id string) error
@@ -30,9 +31,7 @@ type pgObjectStorageStore struct {
 }
 
 func NewObjectStorageStore(pool *pgxpool.Pool) ObjectStorageStore {
-	return &pgObjectStorageStore{
-		pool: pool,
-	}
+	return &pgObjectStorageStore{pool: pool}
 }
 
 func (s *pgObjectStorageStore) CreateObject(ctx context.Context, object entity.ObjectMetadata) (entity.ObjectMetadata, error) {
@@ -68,7 +67,6 @@ func (s *pgObjectStorageStore) CreateObject(ctx context.Context, object entity.O
 		if isUniqueViolation(err) {
 			return entity.ObjectMetadata{}, ErrObjectAlreadyExists
 		}
-
 		return entity.ObjectMetadata{}, fmt.Errorf("store: create object: %w", err)
 	}
 
@@ -83,6 +81,39 @@ func (s *pgObjectStorageStore) GetObject(ctx context.Context, id string) (entity
 			id,
 		),
 	)
+}
+
+func (s *pgObjectStorageStore) ListObjects(ctx context.Context, userID, objectType string) ([]entity.ObjectMetadata, error) {
+	rows, err := s.pool.Query(
+		ctx,
+		`SELECT `+entity.ObjectStorageColumns+`
+		 FROM object_storage
+		 WHERE user_id = $1
+		   AND object_type = $2
+		 ORDER BY updated_at DESC, created_at DESC`,
+		userID,
+		objectType,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: list objects: %w", err)
+	}
+	defer rows.Close()
+
+	objects := make([]entity.ObjectMetadata, 0)
+
+	for rows.Next() {
+		object, err := scanObject(rows)
+		if err != nil {
+			return nil, err
+		}
+		objects = append(objects, object)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: iterate objects: %w", err)
+	}
+
+	return objects, nil
 }
 
 func (s *pgObjectStorageStore) GetObjectByIdempotencyKey(ctx context.Context, userID, key string) (entity.ObjectMetadata, error) {
@@ -108,7 +139,6 @@ func (s *pgObjectStorageStore) MarkObjectIndexed(ctx context.Context, id string)
 	if err != nil {
 		return fmt.Errorf("store: mark indexed: %w", err)
 	}
-
 	if tag.RowsAffected() == 0 {
 		return ErrObjectNotFound
 	}
@@ -126,7 +156,6 @@ func (s *pgObjectStorageStore) DeleteObject(ctx context.Context, id string) erro
 	if err != nil {
 		return fmt.Errorf("store: delete object: %w", err)
 	}
-
 	if tag.RowsAffected() == 0 {
 		return ErrObjectNotFound
 	}
@@ -157,7 +186,6 @@ func scanObject(row pgx.Row) (entity.ObjectMetadata, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return entity.ObjectMetadata{}, ErrObjectNotFound
 	}
-
 	if err != nil {
 		return entity.ObjectMetadata{}, fmt.Errorf("store: scan object: %w", err)
 	}

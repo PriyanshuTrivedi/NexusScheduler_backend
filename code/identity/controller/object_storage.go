@@ -22,6 +22,7 @@ type ObjectStorageController interface {
 	UploadFile(context.Context, entity.UploadFileRequest) (entity.UploadFileResponse, error)
 	GetFile(context.Context, entity.GetFileRequest) (entity.GetFileResponse, error)
 	DeleteFile(context.Context, entity.DeleteFileRequest) (entity.DeleteFileResponse, error)
+	ListFiles(context.Context, entity.ListFilesRequest) (entity.ListFilesResponse, error)
 }
 
 type objectStorageController struct {
@@ -214,6 +215,25 @@ func (c *objectStorageController) DeleteFile(ctx context.Context, req entity.Del
 	}
 
 	return entity.DeleteFileResponse{Deleted: true}, nil
+}
+
+func (c *objectStorageController) ListFiles(ctx context.Context, req entity.ListFilesRequest) (entity.ListFilesResponse, error) {
+	if !entity.IsUUID(req.CallerID) {
+		return entity.ListFilesResponse{}, entity.ErrInvalidObjectID
+	}
+
+	if req.ObjectType != entity.ObjectTypeResourceDocument {
+		return entity.ListFilesResponse{}, entity.ErrInvalidObjectType
+	}
+
+	objects, err := c.store.ListObjects(ctx, req.CallerID, req.ObjectType)
+	if err != nil {
+		return entity.ListFilesResponse{}, fmt.Errorf("identity: list objects: %w", err)
+	}
+
+	return entity.ListFilesResponse{
+		Objects: objects,
+	}, nil
 }
 
 func generateObjectKey(fileName string) (string, error) {
